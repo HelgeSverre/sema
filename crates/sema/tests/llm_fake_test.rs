@@ -370,3 +370,46 @@ fn tool_handler_runs_full_evaluator_with_side_effects() {
     );
     assert_eq!(recorder.call_count(), 2, "tool call round + final answer");
 }
+
+#[test]
+fn rerank_reorders_documents_by_relevance() {
+    // Three candidates; the fake scripts a reordering: doc index 2 most relevant,
+    // then 0, then 1 — each with a descending relevance score.
+    let fake = FakeProvider::builder("fake")
+        .model("rerank-test")
+        .rerank(&[(2, 0.91), (0, 0.42), (1, 0.10)])
+        .build();
+    let src = r#"
+        (llm/rerank "how do I read a file?"
+          (list "vectors are cool" "unrelated trivia" "use file/read to read a file")
+          {:top-k 3})
+    "#;
+    let (result, recorder) = eval_with_fake(src, fake);
+    let val = result.expect("llm/rerank should succeed");
+    let items = val.as_seq().expect("rerank returns a list");
+    assert_eq!(items.len(), 3);
+
+    // Top result is the original index 2 (the actually-relevant doc), with its score.
+    let top = items[0].as_map_rc().expect("result is a map");
+    assert_eq!(
+        top.get(&Value::keyword("index")).and_then(|v| v.as_int()),
+        Some(2)
+    );
+    assert_eq!(
+        top.get(&Value::keyword("document"))
+            .and_then(|v| v.as_str()),
+        Some("use file/read to read a file")
+    );
+    let score = top
+        .get(&Value::keyword("score"))
+        .and_then(|v| v.as_float())
+        .unwrap();
+    assert!((score - 0.91).abs() < 1e-9);
+
+    // The runtime forwarded the canonical request: query + all three documents + top_k.
+    let reqs = recorder.reranks();
+    assert_eq!(reqs.len(), 1);
+    assert_eq!(reqs[0].query, "how do I read a file?");
+    assert_eq!(reqs[0].documents.len(), 3);
+    assert_eq!(reqs[0].top_k, Some(3));
+}

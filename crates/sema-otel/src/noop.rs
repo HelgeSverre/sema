@@ -76,8 +76,11 @@ impl LlmSpan {
     }
     pub fn set_output_type(&self, _json: bool) {}
     pub fn set_tools(&self, _tools: &[crate::ToolView]) {}
+    pub fn set_embedding_input(&self, _texts: &[String]) {}
     pub fn set_trace_io(&self, _input: &str, _output: &str) {}
     pub fn set_tags(&self, _tags: &[String]) {}
+    pub fn set_metadata(&self, _meta: &[(String, String)]) {}
+    pub fn mark_first_token(&self) {}
     pub fn set_dispatch(&self, _sema_provider: &str, _request_model: &str) {}
     pub fn set_response(&self, _facts: &ResponseFacts) {}
     pub fn set_conversation_id(&self, _id: &str) {}
@@ -108,6 +111,29 @@ impl AgentSpan {
     pub fn set_trace_io(&self, _input: &str, _output: &str) {}
     pub fn set_tags(&self, _tags: &[String]) {}
     pub fn set_metadata(&self, _meta: &[(String, String)]) {}
+    pub fn record_error(&self, _kind: &str, _msg: &str) {}
+}
+
+pub struct RetrieverSpan;
+
+pub fn retriever_span(_query_dims: usize, _k: usize) -> RetrieverSpan {
+    RetrieverSpan
+}
+
+impl RetrieverSpan {
+    pub fn set_documents(&self, _docs: &[(String, String, f64)]) {}
+    pub fn record_error(&self, _kind: &str, _msg: &str) {}
+}
+
+pub struct RerankerSpan;
+
+pub fn reranker_span(_query: &str, _model: &str, _top_k: Option<usize>) -> RerankerSpan {
+    RerankerSpan
+}
+
+impl RerankerSpan {
+    pub fn set_input(&self, _docs: &[String]) {}
+    pub fn set_output(&self, _docs: &[(String, f64)]) {}
     pub fn record_error(&self, _kind: &str, _msg: &str) {}
 }
 

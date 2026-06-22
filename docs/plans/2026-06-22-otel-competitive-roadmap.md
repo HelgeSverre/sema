@@ -61,15 +61,21 @@ populate; sessions/users group; gRPC + HTTP both deliver.
 
 ### P1 — Genuine differentiators, modest effort
 
-| Item | Keys | Notes |
+**SHIPPED 2026-06-22** (verified end-to-end against a live OTel Collector — HTTP/protobuf
++ gRPC — and Jaeger, with real Anthropic calls): TTFT, auto-tags + user `:tags`, metadata
+passthrough, LangSmith session / Langfuse release, per-direction cost split, and embedding
+model/texts. Deterministic regression test: `crates/sema/tests/otel_tags_test.rs`. **All
+P1 items are now done** — the remaining backlog is P2 (each needs a new language feature).
+
+| Item | Keys | Status |
 |---|---|---|
-| **Time-to-first-token (streaming)** | `langfuse.observation.completion_start_time` (ISO8601), `gen_ai.is_streaming`, OpenLLMetry `llm.chat_completions.streaming_time_to_first_token` | `llm/stream` knows first-chunk wall time. **Almost no emitter does this** — clear best-in-class signal. |
-| **Auto-tags** | `langfuse.trace.tags`, `langsmith.span.tags` (CSV), `braintrust.tags` | Auto-tag with provider + model + operation + cache-hit; pass through a user `:tags`. |
-| **Metadata passthrough** | `langfuse.trace.metadata.*`, `langsmith.metadata.*`, `braintrust.metadata` | Add a `:metadata` map option on `agent/run`/`llm/chat` → fan out per platform prefix. |
-| **`llm.invocation_parameters`** | OpenInference consolidated JSON blob | Phoenix reads the blob; keep discrete `gen_ai.request.*` as source of truth. |
-| **Cost split / aliases** | `llm.cost.total`/`prompt`/`completion` (OpenInference), cache-token aliases (`llm.token_count.prompt_details.cache_read`) | Sema self-computes cost — an advantage over OpenLLMetry (server-side) — surface it in their namespace too. |
-| **LangSmith session/version** | `langsmith.trace.session_id`, `langfuse.release`/`langfuse.version` | LangSmith ignores `session.id`/`gen_ai.conversation.id`; needs its own key. |
-| **Embedding detail** | `embedding.model_name`, texts (gated), `openinference.span.kind=EMBEDDING` | Skip raw vectors by default (both competitors gate them). |
+| **Time-to-first-token (streaming)** | `sema.gen_ai.server.time_to_first_token` + `sema.gen_ai.is_streaming` (always-on), `langfuse.observation.completion_start_time` (RFC3339), Traceloop `gen_ai.is_streaming` (OpenLLMetry has no per-span TTFT attribute — streaming latency is a histogram metric there) | ✅ `llm/stream` stamps first-chunk time. **Almost no emitter does this.** |
+| **Auto-tags** | `langfuse.trace.tags`, `langsmith.span.tags` (CSV), `braintrust.tags` | ✅ provider + model + operation + cache-hit, merged with user `:tags`. |
+| **Metadata passthrough** | `langfuse.trace.metadata.*`, `langsmith.metadata.*`, `traceloop.association.properties.*`, `braintrust.metadata` | ✅ `:metadata` map on `llm/complete`/`llm/chat`/`llm/stream`/`agent/run`. |
+| **LangSmith session / release** | `langsmith.trace.session_id`, `langfuse.release` (from `SEMA_OTEL_RELEASE`) | ✅ applied to every span when the backend is active. |
+| **`llm.invocation_parameters`** | OpenInference consolidated JSON blob | ✅ (shipped earlier with the P0 layer). |
+| **Cost split / aliases** | `llm.cost.total`/`prompt`/`completion` (OpenInference), cache-token aliases (`llm.token_count.prompt_details.cache_read`) | ✅ per-direction `llm.cost.prompt`/`.completion` now ship alongside `.total` + the cache-read alias. |
+| **Embedding detail** | `embedding.model_name`, texts (gated), `openinference.span.kind=EMBEDDING` | ✅ named model + (content-gated, capped) input texts now ship alongside the span-kind. |
 
 ### P2 — Needs a new Sema concept; roadmap notes only
 
@@ -77,8 +83,12 @@ populate; sessions/users group; gRPC + HTTP both deliver.
   feasible if Sema adds first-class prompt templating. Sema's f-strings (`f"...${x}..."`)
   are *exactly* a template + bound vars — a natural future fit. Track with the
   `defprompt`/structured-output idea in IDEAS.md.
-- **Retriever / reranker / vector-DB spans** (`retrieval.documents.*`): no Sema RAG
-  primitive yet. Revisit if vector-store builtins land.
+- **Retriever / reranker / vector-DB spans** (`retrieval.documents.*`): ✅ **SHIPPED
+  2026-06-22.** `vector-store/search` emits an OpenInference `RETRIEVER` span; the new
+  `llm/rerank` (Cohere/Jina/Voyage cross-encoder) emits a `RERANKER` span
+  (`reranker.query`/`model_name`/`top_k`/`{input,output}_documents.*`). Completes the RAG
+  story (`llm/embed` + `vector-store/*` + `llm/rerank` + `llm/complete`); see
+  `examples/llm/rag-docs-search.sema` + `website/docs/llm/rag.md`.
 - **Scores / evaluations** (`braintrust.scores`, Langfuse/LangSmith score APIs): not
   auto-derivable; a manual `(otel/score ...)` surface — see the Sema-native tracing
   scoping doc + the deferred evals item.

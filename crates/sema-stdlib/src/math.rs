@@ -105,6 +105,32 @@ pub fn register(env: &sema_core::Env) {
         }
     });
 
+    // Round to `places` decimal places, returning a float: (math/round-to 3.14159 2) => 3.14.
+    register_fn(env, "math/round-to", |args| {
+        check_arity!(args, "math/round-to", 2);
+        let x = args[0]
+            .as_float()
+            .ok_or_else(|| SemaError::type_error("number", args[0].type_name()))?;
+        let places = args[1]
+            .as_int()
+            .ok_or_else(|| SemaError::type_error("integer", args[1].type_name()))?;
+        let factor = 10f64.powi(places as i32);
+        Ok(Value::float((x * factor).round() / factor))
+    });
+
+    // Fixed-decimal display string, padding trailing zeros: (math/format-fixed 1.2 3) => "1.200".
+    register_fn(env, "math/format-fixed", |args| {
+        check_arity!(args, "math/format-fixed", 2);
+        let x = args[0]
+            .as_float()
+            .ok_or_else(|| SemaError::type_error("number", args[0].type_name()))?;
+        let places = args[1]
+            .as_int()
+            .ok_or_else(|| SemaError::type_error("integer", args[1].type_name()))?
+            .max(0) as usize;
+        Ok(Value::string(&format!("{x:.places$}")))
+    });
+
     register_fn(env, "sqrt", |args| {
         check_arity!(args, "sqrt", 1);
         let f = args[0]

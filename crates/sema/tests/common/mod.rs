@@ -2,49 +2,34 @@
 use sema_core::Value;
 use sema_eval::Interpreter;
 
-/// Evaluate via tree-walker
-pub fn eval_tw(input: &str) -> Value {
-    let interp = Interpreter::new();
-    interp
-        .eval_str(input)
-        .unwrap_or_else(|e| panic!("tree-walker failed for `{input}`: {e}"))
-}
-
-/// Evaluate via bytecode VM
-pub fn eval_vm(input: &str) -> Value {
+/// Evaluate Sema source on the VM (the sole evaluator), panicking on error. Used both to
+/// run a test's input and to turn an expected Sema literal into a `Value`
+/// (e.g. `=> common::eval("'(2 4 6)")`).
+pub fn eval(input: &str) -> Value {
     let interp = Interpreter::new();
     interp
         .eval_str_compiled(input)
-        .unwrap_or_else(|e| panic!("VM failed for `{input}`: {e}"))
+        .unwrap_or_else(|e| panic!("eval failed for `{input}`: {e}"))
 }
 
-/// Generate tests for both tree-walker and VM backends.
+/// Generate one test per case, asserting the evaluated value. With the tree-walker
+/// retired there is a single evaluator, so each case emits ONE `test_name` function
+/// (no `_tw`/`_vm` duplication); the macro's value is pinning a literal expected value.
 ///
 /// Usage:
 /// ```ignore
 /// eval_tests! {
 ///     test_name: "sema expression" => expected_value,
-///     test_name2: "sema expression" => expected_value2,
 /// }
 /// ```
-///
-/// This generates `test_name_tw` and `test_name_vm` test functions.
 #[macro_export]
 macro_rules! eval_tests {
     ($($name:ident : $input:expr => $expected:expr),* $(,)?) => {
         $(
-            paste::paste! {
-                #[test]
-                fn [<$name _tw>]() {
-                    let result = common::eval_tw($input);
-                    assert_eq!(result, $expected, "tree-walker: {}", $input);
-                }
-
-                #[test]
-                fn [<$name _vm>]() {
-                    let result = common::eval_vm($input);
-                    assert_eq!(result, $expected, "VM: {}", $input);
-                }
+            #[test]
+            fn $name() {
+                let result = common::eval($input);
+                assert_eq!(result, $expected, "VM: {}", $input);
             }
         )*
     };
@@ -102,66 +87,42 @@ macro_rules! __eval_error_tests_parse {
     };
 }
 
-/// Internal: emit a strong (substring-checked) error test pair.
+/// Internal: emit a strong (substring-checked) error test.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! __eval_error_test_strong {
     ($name:ident, $input:expr, $expected:expr) => {
-        paste::paste! {
-            #[test]
-            fn [<$name _tw>]() {
-                let interp = sema_eval::Interpreter::new();
-                let result = interp.eval_str($input);
-                let err = result.expect_err(concat!(
-                    "tree-walker should error for: ", stringify!($name)
-                ));
-                let msg = err.to_string().to_lowercase();
-                let expected = ($expected).to_lowercase();
-                assert!(
-                    msg.contains(&expected),
-                    "tree-walker error for `{}` did not contain `{}`\n  full error: {}",
-                    $input, $expected, err
-                );
-            }
-
-            #[test]
-            fn [<$name _vm>]() {
-                let interp = sema_eval::Interpreter::new();
-                let result = interp.eval_str_compiled($input);
-                let err = result.expect_err(concat!(
-                    "VM should error for: ", stringify!($name)
-                ));
-                let msg = err.to_string().to_lowercase();
-                let expected = ($expected).to_lowercase();
-                assert!(
-                    msg.contains(&expected),
-                    "VM error for `{}` did not contain `{}`\n  full error: {}",
-                    $input, $expected, err
-                );
-            }
+        #[test]
+        fn $name() {
+            let interp = sema_eval::Interpreter::new();
+            let result = interp.eval_str_compiled($input);
+            let err = result.expect_err(concat!("should error for: ", stringify!($name)));
+            let msg = err.to_string().to_lowercase();
+            let expected = ($expected).to_lowercase();
+            assert!(
+                msg.contains(&expected),
+                "error for `{}` did not contain `{}`\n  full error: {}",
+                $input,
+                $expected,
+                err
+            );
         }
     };
 }
 
-/// Internal: emit a legacy (existence-only) error test pair.
+/// Internal: emit a legacy (existence-only) error test.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! __eval_error_test_legacy {
     ($name:ident, $input:expr) => {
-        paste::paste! {
-            #[test]
-            fn [<$name _tw>]() {
-                let interp = sema_eval::Interpreter::new();
-                assert!(interp.eval_str($input).is_err(),
-                    "tree-walker should error for: {}", $input);
-            }
-
-            #[test]
-            fn [<$name _vm>]() {
-                let interp = sema_eval::Interpreter::new();
-                assert!(interp.eval_str_compiled($input).is_err(),
-                    "VM should error for: {}", $input);
-            }
+        #[test]
+        fn $name() {
+            let interp = sema_eval::Interpreter::new();
+            assert!(
+                interp.eval_str_compiled($input).is_err(),
+                "should error for: {}",
+                $input
+            );
         }
     };
 }

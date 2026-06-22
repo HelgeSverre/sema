@@ -3,7 +3,7 @@ mod common;
 use sema_core::Value;
 
 // ============================================================
-// String operations — dual eval (tree-walker + VM)
+// String operations
 // ============================================================
 
 eval_tests! {
@@ -40,7 +40,7 @@ eval_tests! {
 }
 
 // ============================================================
-// String conversion functions — dual eval (tree-walker + VM)
+// String conversion functions
 // ============================================================
 
 eval_tests! {
@@ -53,7 +53,7 @@ eval_tests! {
 }
 
 // ============================================================
-// List operations — dual eval (tree-walker + VM)
+// List operations
 // ============================================================
 
 eval_tests! {
@@ -65,43 +65,43 @@ eval_tests! {
     list_length: "(length '(1 2 3))" => Value::int(3),
     list_append: "(append '(1 2) '(3 4))" => Value::list(vec![Value::int(1), Value::int(2), Value::int(3), Value::int(4)]),
     list_reverse: "(reverse '(1 2 3))" => Value::list(vec![Value::int(3), Value::int(2), Value::int(1)]),
-    list_map: "(map (fn (x) (* x 2)) '(1 2 3))" => common::eval_tw("'(2 4 6)"),
-    list_filter: "(filter odd? '(1 2 3 4 5))" => common::eval_tw("'(1 3 5)"),
+    list_map: "(map (fn (x) (* x 2)) '(1 2 3))" => common::eval("'(2 4 6)"),
+    list_filter: "(filter odd? '(1 2 3 4 5))" => common::eval("'(1 3 5)"),
     list_foldl: "(foldl + 0 '(1 2 3))" => Value::int(6),
     // Order-sensitive folds: a non-commutative function pins foldl's accumulator
     // arg order ((acc, item), left-to-right). All prior foldl tests used `+`, so
     // swapping the callback's args was invisible (coverage gap found by mutation
     // testing 2026-06).
     list_foldl_subtract: "(foldl (fn (acc x) (- acc x)) 0 '(1 2 3))" => Value::int(-6),
-    list_foldl_builds_reversed: "(foldl (fn (acc x) (cons x acc)) '() '(1 2 3))" => common::eval_tw("'(3 2 1)"),
-    list_foldr: "(foldr cons '() '(1 2 3))" => common::eval_tw("'(1 2 3)"),
-    list_sort: "(sort '(3 1 2))" => common::eval_tw("'(1 2 3)"),
-    list_sort_by: "(sort-by (fn (x) (- 0 x)) '(3 1 2))" => common::eval_tw("'(3 2 1)"),
-    list_flatten: "(flatten '(1 (2 3) (4 5)))" => common::eval_tw("'(1 2 3 4 5)"),
-    list_flatten_deep: "(flatten-deep '(1 (2 3) (4 (5))))" => common::eval_tw("'(1 2 3 4 5)"),
-    list_zip: "(zip '(1 2 3) '(4 5 6))" => common::eval_tw("'((1 4) (2 5) (3 6))"),
-    list_take: "(take 2 '(1 2 3 4))" => common::eval_tw("'(1 2)"),
-    list_drop: "(drop 2 '(1 2 3 4))" => common::eval_tw("'(3 4)"),
+    list_foldl_builds_reversed: "(foldl (fn (acc x) (cons x acc)) '() '(1 2 3))" => common::eval("'(3 2 1)"),
+    list_foldr: "(foldr cons '() '(1 2 3))" => common::eval("'(1 2 3)"),
+    list_sort: "(sort '(3 1 2))" => common::eval("'(1 2 3)"),
+    list_sort_by: "(sort-by (fn (x) (- 0 x)) '(3 1 2))" => common::eval("'(3 2 1)"),
+    list_flatten: "(flatten '(1 (2 3) (4 5)))" => common::eval("'(1 2 3 4 5)"),
+    list_flatten_deep: "(flatten-deep '(1 (2 3) (4 (5))))" => common::eval("'(1 2 3 4 5)"),
+    list_zip: "(zip '(1 2 3) '(4 5 6))" => common::eval("'((1 4) (2 5) (3 6))"),
+    list_take: "(take 2 '(1 2 3 4))" => common::eval("'(1 2)"),
+    list_drop: "(drop 2 '(1 2 3 4))" => common::eval("'(3 4)"),
     list_nth: "(nth '(10 20 30) 1)" => Value::int(20),
     list_last: "(last '(1 2 3))" => Value::int(3),
-    list_range: "(range 1 5)" => common::eval_tw("'(1 2 3 4)"),
-    list_range_step: "(range 0 10 3)" => common::eval_tw("'(0 3 6 9)"),
-    list_unique: "(sort (list/unique '(1 2 2 3 3 3)))" => common::eval_tw("'(1 2 3)"),
+    list_range: "(range 1 5)" => common::eval("'(1 2 3 4)"),
+    list_range_step: "(range 0 10 3)" => common::eval("'(0 3 6 9)"),
+    list_unique: "(sort (list/unique '(1 2 2 3 3 3)))" => common::eval("'(1 2 3)"),
     list_find: "(list/find odd? '(2 4 5 6))" => Value::int(5),
     list_count: "(count '(1 2 3))" => Value::int(3),
     list_empty: "(empty? '())" => Value::bool(true),
     list_partition: "(length (car (partition even? '(1 2 3 4 5))))" => Value::int(2),
-    list_flat_map: "(flat-map (fn (x) (list x x)) '(1 2 3))" => common::eval_tw("'(1 1 2 2 3 3)"),
-    list_for_each: "(begin (define acc '()) (for-each (fn (x) (set! acc (cons x acc))) '(1 2 3)) (reverse acc))" => common::eval_tw("'(1 2 3)"),
-    list_member: "(member 2 '(1 2 3))" => common::eval_tw("'(2 3)"),
+    list_flat_map: "(flat-map (fn (x) (list x x)) '(1 2 3))" => common::eval("'(1 1 2 2 3 3)"),
+    list_for_each: "(begin (define acc '()) (for-each (fn (x) (set! acc (cons x acc))) '(1 2 3)) (reverse acc))" => common::eval("'(1 2 3)"),
+    list_member: "(member 2 '(1 2 3))" => common::eval("'(2 3)"),
     list_member_missing: "(member 5 '(1 2 3))" => Value::bool(false),
     list_reduce: "(reduce + '(1 2 3 4))" => Value::int(10),
-    list_iota: "(iota 5)" => common::eval_tw("'(0 1 2 3 4)"),
-    list_interpose: r#"(interpose ", " '("a" "b" "c"))"# => common::eval_tw(r#"'("a" ", " "b" ", " "c")"#),
+    list_iota: "(iota 5)" => common::eval("'(0 1 2 3 4)"),
+    list_interpose: r#"(interpose ", " '("a" "b" "c"))"# => common::eval(r#"'("a" ", " "b" ", " "c")"#),
 }
 
 // ============================================================
-// Vector operations — dual eval (tree-walker + VM)
+// Vector operations
 // ============================================================
 
 eval_tests! {
@@ -112,7 +112,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Apply — dual eval (tree-walker + VM)
+// Apply
 // ============================================================
 
 eval_tests! {
@@ -121,7 +121,7 @@ eval_tests! {
 }
 
 // ============================================================
-// any / every — dual eval
+// any / every
 // ============================================================
 
 eval_tests! {
@@ -134,7 +134,7 @@ eval_tests! {
 }
 
 // ============================================================
-// list/index-of — dual eval
+// list/index-of
 // ============================================================
 
 eval_tests! {
@@ -147,7 +147,7 @@ eval_tests! {
 }
 
 // ============================================================
-// list/group-by — dual eval
+// list/group-by
 // ============================================================
 
 eval_tests! {
@@ -157,27 +157,27 @@ eval_tests! {
 }
 
 // ============================================================
-// list/interleave — dual eval
+// list/interleave
 // ============================================================
 
 eval_tests! {
-    interleave_basic: "(list/interleave '(1 3 5) '(2 4 6))" => common::eval_tw("'(1 2 3 4 5 6)"),
-    interleave_truncate: "(list/interleave '(1 3 5) '(2 4))" => common::eval_tw("'(1 2 3 4)"),
-    interleave_three: "(list/interleave '(1 4) '(2 5) '(3 6))" => common::eval_tw("'(1 2 3 4 5 6)"),
-    interleave_empty_first: "(list/interleave '() '(1 2 3))" => common::eval_tw("'()"),
-    interleave_empty_second: "(list/interleave '(1 2 3) '())" => common::eval_tw("'()"),
+    interleave_basic: "(list/interleave '(1 3 5) '(2 4 6))" => common::eval("'(1 2 3 4 5 6)"),
+    interleave_truncate: "(list/interleave '(1 3 5) '(2 4))" => common::eval("'(1 2 3 4)"),
+    interleave_three: "(list/interleave '(1 4) '(2 5) '(3 6))" => common::eval("'(1 2 3 4 5 6)"),
+    interleave_empty_first: "(list/interleave '() '(1 2 3))" => common::eval("'()"),
+    interleave_empty_second: "(list/interleave '(1 2 3) '())" => common::eval("'()"),
 }
 
 // ============================================================
-// list/chunk — dual eval
+// list/chunk
 // ============================================================
 
 eval_tests! {
-    chunk_even: "(list/chunk 2 '(1 2 3 4))" => common::eval_tw("'((1 2) (3 4))"),
-    chunk_uneven: "(list/chunk 2 '(1 2 3 4 5))" => common::eval_tw("'((1 2) (3 4) (5))"),
-    chunk_larger: "(list/chunk 10 '(1 2 3))" => common::eval_tw("'((1 2 3))"),
-    chunk_one: "(list/chunk 1 '(1 2 3))" => common::eval_tw("'((1) (2) (3))"),
-    chunk_empty: "(list/chunk 2 '())" => common::eval_tw("'()"),
+    chunk_even: "(list/chunk 2 '(1 2 3 4))" => common::eval("'((1 2) (3 4))"),
+    chunk_uneven: "(list/chunk 2 '(1 2 3 4 5))" => common::eval("'((1 2) (3 4) (5))"),
+    chunk_larger: "(list/chunk 10 '(1 2 3))" => common::eval("'((1 2 3))"),
+    chunk_one: "(list/chunk 1 '(1 2 3))" => common::eval("'((1) (2) (3))"),
+    chunk_empty: "(list/chunk 2 '())" => common::eval("'()"),
 }
 
 eval_error_tests! {
@@ -185,29 +185,29 @@ eval_error_tests! {
 }
 
 // ============================================================
-// take-while / drop-while — dual eval
+// take-while / drop-while
 // ============================================================
 
 eval_tests! {
-    take_while_basic: "(take-while even? '(2 4 5 6))" => common::eval_tw("'(2 4)"),
-    take_while_none: "(take-while even? '(1 2 4))" => common::eval_tw("'()"),
-    take_while_all: "(take-while even? '(2 4 6))" => common::eval_tw("'(2 4 6)"),
-    take_while_empty: "(take-while even? '())" => common::eval_tw("'()"),
-    drop_while_basic: "(drop-while even? '(2 4 5 6))" => common::eval_tw("'(5 6)"),
-    drop_while_none: "(drop-while even? '(1 2 4))" => common::eval_tw("'(1 2 4)"),
-    drop_while_all: "(drop-while even? '(2 4 6))" => common::eval_tw("'()"),
-    drop_while_empty: "(drop-while even? '())" => common::eval_tw("'()"),
+    take_while_basic: "(take-while even? '(2 4 5 6))" => common::eval("'(2 4)"),
+    take_while_none: "(take-while even? '(1 2 4))" => common::eval("'()"),
+    take_while_all: "(take-while even? '(2 4 6))" => common::eval("'(2 4 6)"),
+    take_while_empty: "(take-while even? '())" => common::eval("'()"),
+    drop_while_basic: "(drop-while even? '(2 4 5 6))" => common::eval("'(5 6)"),
+    drop_while_none: "(drop-while even? '(1 2 4))" => common::eval("'(1 2 4)"),
+    drop_while_all: "(drop-while even? '(2 4 6))" => common::eval("'()"),
+    drop_while_empty: "(drop-while even? '())" => common::eval("'()"),
 }
 
 // ============================================================
-// list/take-while / list/drop-while — dual eval
+// list/take-while / list/drop-while
 // ============================================================
 
 eval_tests! {
-    list_take_while_basic: "(list/take-while even? '(2 4 5 6))" => common::eval_tw("'(2 4)"),
-    list_take_while_empty: "(list/take-while even? '())" => common::eval_tw("'()"),
-    list_drop_while_basic: "(list/drop-while even? '(2 4 5 6))" => common::eval_tw("'(5 6)"),
-    list_drop_while_empty: "(list/drop-while even? '())" => common::eval_tw("'()"),
+    list_take_while_basic: "(list/take-while even? '(2 4 5 6))" => common::eval("'(2 4)"),
+    list_take_while_empty: "(list/take-while even? '())" => common::eval("'()"),
+    list_drop_while_basic: "(list/drop-while even? '(2 4 5 6))" => common::eval("'(5 6)"),
+    list_drop_while_empty: "(list/drop-while even? '())" => common::eval("'()"),
 }
 
 // ============================================================
@@ -215,28 +215,28 @@ eval_tests! {
 // ============================================================
 
 eval_tests! {
-    dedupe_consecutive: "(list/dedupe '(1 1 2 1 1))" => common::eval_tw("'(1 2 1)"),
-    dedupe_no_dupes: "(list/dedupe '(1 2 3))" => common::eval_tw("'(1 2 3)"),
-    dedupe_all_same: "(list/dedupe '(5 5 5))" => common::eval_tw("'(5)"),
-    dedupe_empty: "(list/dedupe '())" => common::eval_tw("'()"),
-    dedupe_single: "(list/dedupe '(42))" => common::eval_tw("'(42)"),
-    dedupe_strings: r#"(list/dedupe '("a" "a" "b" "b" "a"))"# => common::eval_tw(r#"'("a" "b" "a")"#),
+    dedupe_consecutive: "(list/dedupe '(1 1 2 1 1))" => common::eval("'(1 2 1)"),
+    dedupe_no_dupes: "(list/dedupe '(1 2 3))" => common::eval("'(1 2 3)"),
+    dedupe_all_same: "(list/dedupe '(5 5 5))" => common::eval("'(5)"),
+    dedupe_empty: "(list/dedupe '())" => common::eval("'()"),
+    dedupe_single: "(list/dedupe '(42))" => common::eval("'(42)"),
+    dedupe_strings: r#"(list/dedupe '("a" "a" "b" "b" "a"))"# => common::eval(r#"'("a" "b" "a")"#),
 }
 
 // ============================================================
-// list/split-at — dual eval
+// list/split-at
 // ============================================================
 
 eval_tests! {
-    split_at_middle: "(list/split-at '(1 2 3 4 5) 3)" => common::eval_tw("'((1 2 3) (4 5))"),
-    split_at_zero: "(list/split-at '(1 2 3) 0)" => common::eval_tw("'(() (1 2 3))"),
-    split_at_end: "(list/split-at '(1 2 3) 3)" => common::eval_tw("'((1 2 3) ())"),
-    split_at_beyond: "(list/split-at '(1 2 3) 10)" => common::eval_tw("'((1 2 3) ())"),
-    split_at_empty: "(list/split-at '() 0)" => common::eval_tw("'(() ())"),
+    split_at_middle: "(list/split-at '(1 2 3 4 5) 3)" => common::eval("'((1 2 3) (4 5))"),
+    split_at_zero: "(list/split-at '(1 2 3) 0)" => common::eval("'(() (1 2 3))"),
+    split_at_end: "(list/split-at '(1 2 3) 3)" => common::eval("'((1 2 3) ())"),
+    split_at_beyond: "(list/split-at '(1 2 3) 10)" => common::eval("'((1 2 3) ())"),
+    split_at_empty: "(list/split-at '() 0)" => common::eval("'(() ())"),
 }
 
 // ============================================================
-// list/sum — dual eval
+// list/sum
 // ============================================================
 
 eval_tests! {
@@ -249,7 +249,7 @@ eval_tests! {
 }
 
 // ============================================================
-// list/min / list/max — dual eval
+// list/min / list/max
 // ============================================================
 
 eval_tests! {
@@ -269,39 +269,39 @@ eval_error_tests! {
 }
 
 // ============================================================
-// list/repeat / make-list — dual eval
+// list/repeat / make-list
 // ============================================================
 
 eval_tests! {
-    repeat_basic: "(list/repeat 3 0)" => common::eval_tw("'(0 0 0)"),
-    repeat_string: r#"(list/repeat 2 "hi")"# => common::eval_tw(r#"'("hi" "hi")"#),
-    repeat_zero: "(list/repeat 0 1)" => common::eval_tw("'()"),
-    make_list_basic: "(make-list 3 #t)" => common::eval_tw("'(#t #t #t)"),
+    repeat_basic: "(list/repeat 3 0)" => common::eval("'(0 0 0)"),
+    repeat_string: r#"(list/repeat 2 "hi")"# => common::eval(r#"'("hi" "hi")"#),
+    repeat_zero: "(list/repeat 0 1)" => common::eval("'()"),
+    make_list_basic: "(make-list 3 #t)" => common::eval("'(#t #t #t)"),
 }
 
 // ============================================================
-// list/reject — dual eval
+// list/reject
 // ============================================================
 
 eval_tests! {
-    reject_basic: "(list/reject even? '(1 2 3 4 5))" => common::eval_tw("'(1 3 5)"),
-    reject_none: "(list/reject even? '(1 3 5))" => common::eval_tw("'(1 3 5)"),
-    reject_all: "(list/reject even? '(2 4 6))" => common::eval_tw("'()"),
-    reject_empty: "(list/reject even? '())" => common::eval_tw("'()"),
+    reject_basic: "(list/reject even? '(1 2 3 4 5))" => common::eval("'(1 3 5)"),
+    reject_none: "(list/reject even? '(1 3 5))" => common::eval("'(1 3 5)"),
+    reject_all: "(list/reject even? '(2 4 6))" => common::eval("'()"),
+    reject_empty: "(list/reject even? '())" => common::eval("'()"),
 }
 
 // ============================================================
-// list/pluck — dual eval
+// list/pluck
 // ============================================================
 
 eval_tests! {
-    pluck_basic: r#"(list/pluck :name (list {:name "a"} {:name "b"}))"# => common::eval_tw(r#"'("a" "b")"#),
-    pluck_missing_key: r#"(list/pluck :age (list {:name "a"}))"# => common::eval_tw("'(nil)"),
-    pluck_empty: "(list/pluck :x '())" => common::eval_tw("'()"),
+    pluck_basic: r#"(list/pluck :name (list {:name "a"} {:name "b"}))"# => common::eval(r#"'("a" "b")"#),
+    pluck_missing_key: r#"(list/pluck :age (list {:name "a"}))"# => common::eval("'(nil)"),
+    pluck_empty: "(list/pluck :x '())" => common::eval("'()"),
 }
 
 // ============================================================
-// list/avg — dual eval
+// list/avg
 // ============================================================
 
 eval_tests! {
@@ -315,7 +315,7 @@ eval_error_tests! {
 }
 
 // ============================================================
-// list/median — dual eval
+// list/median
 // ============================================================
 
 eval_tests! {
@@ -330,7 +330,7 @@ eval_error_tests! {
 }
 
 // ============================================================
-// list/mode — dual eval
+// list/mode
 // ============================================================
 
 eval_tests! {
@@ -350,42 +350,42 @@ eval_error_tests! {
 }
 
 // ============================================================
-// list/diff — dual eval
+// list/diff
 // ============================================================
 
 eval_tests! {
-    diff_basic: "(list/diff '(1 2 3 4) '(2 4))" => common::eval_tw("'(1 3)"),
-    diff_removes_all: "(list/diff '(1 2 2 3) '(2))" => common::eval_tw("'(1 3)"),
-    diff_no_overlap: "(list/diff '(1 2 3) '(4 5))" => common::eval_tw("'(1 2 3)"),
-    diff_all_overlap: "(list/diff '(1 2 3) '(1 2 3))" => common::eval_tw("'()"),
-    diff_empty_first: "(list/diff '() '(1 2))" => common::eval_tw("'()"),
-    diff_empty_second: "(list/diff '(1 2 3) '())" => common::eval_tw("'(1 2 3)"),
+    diff_basic: "(list/diff '(1 2 3 4) '(2 4))" => common::eval("'(1 3)"),
+    diff_removes_all: "(list/diff '(1 2 2 3) '(2))" => common::eval("'(1 3)"),
+    diff_no_overlap: "(list/diff '(1 2 3) '(4 5))" => common::eval("'(1 2 3)"),
+    diff_all_overlap: "(list/diff '(1 2 3) '(1 2 3))" => common::eval("'()"),
+    diff_empty_first: "(list/diff '() '(1 2))" => common::eval("'()"),
+    diff_empty_second: "(list/diff '(1 2 3) '())" => common::eval("'(1 2 3)"),
 }
 
 // ============================================================
-// list/intersect — dual eval
+// list/intersect
 // ============================================================
 
 eval_tests! {
-    intersect_basic: "(list/intersect '(1 2 3) '(2 3 4))" => common::eval_tw("'(2 3)"),
-    intersect_preserves_dupes: "(list/intersect '(1 2 2 3) '(2 4))" => common::eval_tw("'(2 2)"),
-    intersect_no_overlap: "(list/intersect '(1 2) '(3 4))" => common::eval_tw("'()"),
-    intersect_empty_first: "(list/intersect '() '(1 2))" => common::eval_tw("'()"),
-    intersect_empty_second: "(list/intersect '(1 2) '())" => common::eval_tw("'()"),
+    intersect_basic: "(list/intersect '(1 2 3) '(2 3 4))" => common::eval("'(2 3)"),
+    intersect_preserves_dupes: "(list/intersect '(1 2 2 3) '(2 4))" => common::eval("'(2 2)"),
+    intersect_no_overlap: "(list/intersect '(1 2) '(3 4))" => common::eval("'()"),
+    intersect_empty_first: "(list/intersect '() '(1 2))" => common::eval("'()"),
+    intersect_empty_second: "(list/intersect '(1 2) '())" => common::eval("'()"),
 }
 
 // ============================================================
-// list/sliding — dual eval
+// list/sliding
 // ============================================================
 
 eval_tests! {
-    sliding_basic: "(list/sliding '(1 2 3 4 5) 3)" => common::eval_tw("'((1 2 3) (2 3 4) (3 4 5))"),
-    sliding_full: "(list/sliding '(1 2 3) 3)" => common::eval_tw("'((1 2 3))"),
-    sliding_one: "(list/sliding '(1 2 3) 1)" => common::eval_tw("'((1) (2) (3))"),
-    sliding_too_big: "(list/sliding '(1 2) 5)" => common::eval_tw("'()"),
-    sliding_step: "(list/sliding '(1 2 3 4 5) 2 2)" => common::eval_tw("'((1 2) (3 4))"),
-    sliding_step3: "(list/sliding '(1 2 3 4 5 6) 2 3)" => common::eval_tw("'((1 2) (4 5))"),
-    sliding_empty: "(list/sliding '() 2)" => common::eval_tw("'()"),
+    sliding_basic: "(list/sliding '(1 2 3 4 5) 3)" => common::eval("'((1 2 3) (2 3 4) (3 4 5))"),
+    sliding_full: "(list/sliding '(1 2 3) 3)" => common::eval("'((1 2 3))"),
+    sliding_one: "(list/sliding '(1 2 3) 1)" => common::eval("'((1) (2) (3))"),
+    sliding_too_big: "(list/sliding '(1 2) 5)" => common::eval("'()"),
+    sliding_step: "(list/sliding '(1 2 3 4 5) 2 2)" => common::eval("'((1 2) (3 4))"),
+    sliding_step3: "(list/sliding '(1 2 3 4 5 6) 2 3)" => common::eval("'((1 2) (4 5))"),
+    sliding_empty: "(list/sliding '() 2)" => common::eval("'()"),
 }
 
 eval_error_tests! {
@@ -394,27 +394,27 @@ eval_error_tests! {
 }
 
 // ============================================================
-// list/key-by — dual eval
+// list/key-by
 // ============================================================
 
 eval_tests! {
-    key_by_basic: r#"(hashmap/get (list/key-by (fn (m) (:id m)) (list {:id 1 :name "a"} {:id 2 :name "b"})) 1)"# => common::eval_tw(r#"{:id 1 :name "a"}"#),
+    key_by_basic: r#"(hashmap/get (list/key-by (fn (m) (:id m)) (list {:id 1 :name "a"} {:id 2 :name "b"})) 1)"# => common::eval(r#"{:id 1 :name "a"}"#),
     key_by_last_wins: r#"(:v (hashmap/get (list/key-by (fn (m) (:id m)) (list {:id 1 :v "x"} {:id 1 :v "y"})) 1))"# => Value::string("y"),
     key_by_empty: "(length (keys (list/key-by car '())))" => Value::int(0),
 }
 
 // ============================================================
-// list/times — dual eval
+// list/times
 // ============================================================
 
 eval_tests! {
-    times_basic: "(list/times 5 (fn (i) (* i i)))" => common::eval_tw("'(0 1 4 9 16)"),
-    times_zero: "(list/times 0 (fn (i) i))" => common::eval_tw("'()"),
-    times_identity: "(list/times 3 (fn (i) i))" => common::eval_tw("'(0 1 2)"),
+    times_basic: "(list/times 5 (fn (i) (* i i)))" => common::eval("'(0 1 4 9 16)"),
+    times_zero: "(list/times 0 (fn (i) i))" => common::eval("'()"),
+    times_identity: "(list/times 3 (fn (i) i))" => common::eval("'(0 1 2)"),
 }
 
 // ============================================================
-// list/duplicates — dual eval
+// list/duplicates
 // ============================================================
 
 eval_tests! {
@@ -427,26 +427,26 @@ eval_tests! {
 }
 
 // ============================================================
-// list/cross-join — dual eval
+// list/cross-join
 // ============================================================
 
 eval_tests! {
-    cross_join_basic: "(list/cross-join '(1 2) '(3 4))" => common::eval_tw("'((1 3) (1 4) (2 3) (2 4))"),
-    cross_join_empty_first: "(list/cross-join '() '(1 2))" => common::eval_tw("'()"),
-    cross_join_empty_second: "(list/cross-join '(1 2) '())" => common::eval_tw("'()"),
-    cross_join_single: "(list/cross-join '(1) '(2))" => common::eval_tw("'((1 2))"),
+    cross_join_basic: "(list/cross-join '(1 2) '(3 4))" => common::eval("'((1 3) (1 4) (2 3) (2 4))"),
+    cross_join_empty_first: "(list/cross-join '() '(1 2))" => common::eval("'()"),
+    cross_join_empty_second: "(list/cross-join '(1 2) '())" => common::eval("'()"),
+    cross_join_single: "(list/cross-join '(1) '(2))" => common::eval("'((1 2))"),
 }
 
 // ============================================================
-// list/page — dual eval
+// list/page
 // ============================================================
 
 eval_tests! {
-    page_first: "(list/page '(1 2 3 4 5) 1 2)" => common::eval_tw("'(1 2)"),
-    page_second: "(list/page '(1 2 3 4 5) 2 2)" => common::eval_tw("'(3 4)"),
-    page_last_partial: "(list/page '(1 2 3 4 5) 3 2)" => common::eval_tw("'(5)"),
-    page_beyond: "(list/page '(1 2 3 4 5) 10 2)" => common::eval_tw("'()"),
-    page_empty: "(list/page '() 1 10)" => common::eval_tw("'()"),
+    page_first: "(list/page '(1 2 3 4 5) 1 2)" => common::eval("'(1 2)"),
+    page_second: "(list/page '(1 2 3 4 5) 2 2)" => common::eval("'(3 4)"),
+    page_last_partial: "(list/page '(1 2 3 4 5) 3 2)" => common::eval("'(5)"),
+    page_beyond: "(list/page '(1 2 3 4 5) 10 2)" => common::eval("'()"),
+    page_empty: "(list/page '() 1 10)" => common::eval("'()"),
 }
 
 eval_error_tests! {
@@ -454,19 +454,19 @@ eval_error_tests! {
 }
 
 // ============================================================
-// list/pad — dual eval
+// list/pad
 // ============================================================
 
 eval_tests! {
-    pad_basic: "(list/pad '(1 2) 5 0)" => common::eval_tw("'(1 2 0 0 0)"),
-    pad_already_long: "(list/pad '(1 2 3) 2 0)" => common::eval_tw("'(1 2 3)"),
-    pad_exact: "(list/pad '(1 2 3) 3 0)" => common::eval_tw("'(1 2 3)"),
-    pad_empty: "(list/pad '() 3 0)" => common::eval_tw("'(0 0 0)"),
-    pad_string_fill: r#"(list/pad '() 2 "x")"# => common::eval_tw(r#"'("x" "x")"#),
+    pad_basic: "(list/pad '(1 2) 5 0)" => common::eval("'(1 2 0 0 0)"),
+    pad_already_long: "(list/pad '(1 2 3) 2 0)" => common::eval("'(1 2 3)"),
+    pad_exact: "(list/pad '(1 2 3) 3 0)" => common::eval("'(1 2 3)"),
+    pad_empty: "(list/pad '() 3 0)" => common::eval("'(0 0 0)"),
+    pad_string_fill: r#"(list/pad '() 2 "x")"# => common::eval(r#"'("x" "x")"#),
 }
 
 // ============================================================
-// list/sole — dual eval
+// list/sole
 // ============================================================
 
 eval_tests! {
@@ -480,7 +480,7 @@ eval_error_tests! {
 }
 
 // ============================================================
-// list/join — dual eval
+// list/join
 // ============================================================
 
 eval_tests! {
@@ -493,7 +493,7 @@ eval_tests! {
 }
 
 // ============================================================
-// rest / cdr — dual eval
+// rest / cdr
 // ============================================================
 
 eval_tests! {
@@ -505,7 +505,7 @@ eval_tests! {
 }
 
 // ============================================================
-// vector — dual eval
+// vector
 // ============================================================
 
 eval_tests! {
@@ -516,7 +516,7 @@ eval_tests! {
 }
 
 // ============================================================
-// car/cdr compositions (2-deep) — dual eval
+// car/cdr compositions (2-deep)
 // ============================================================
 
 eval_tests! {
@@ -527,7 +527,7 @@ eval_tests! {
 }
 
 // ============================================================
-// car/cdr compositions (3-deep) — dual eval
+// car/cdr compositions (3-deep)
 // ============================================================
 
 eval_tests! {
@@ -542,7 +542,7 @@ eval_tests! {
 }
 
 // ============================================================
-// assq / assv — dual eval
+// assq / assv
 // ============================================================
 
 eval_tests! {
@@ -555,7 +555,7 @@ eval_tests! {
 }
 
 // ============================================================
-// frequencies — dual eval
+// frequencies
 // ============================================================
 
 eval_tests! {
@@ -577,7 +577,7 @@ eval_tests! {
 }
 
 // ============================================================
-// String error cases — dual eval (tree-walker + VM)
+// String error cases
 // ============================================================
 
 eval_error_tests! {

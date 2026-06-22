@@ -221,6 +221,30 @@ pub struct EmbedResponse {
     pub usage: Usage,
 }
 
+/// Canonical rerank request (one shape Sema produces; each provider translates it).
+#[derive(Debug, Clone)]
+pub struct RerankRequest {
+    pub query: String,
+    pub documents: Vec<String>,
+    /// Keep only the top-K most relevant (provider-side); `None` returns all, reordered.
+    pub top_k: Option<usize>,
+    pub model: Option<String>,
+}
+
+/// One reranked result: an index back into the original `documents` plus its relevance score.
+#[derive(Debug, Clone)]
+pub struct RerankResult {
+    pub index: usize,
+    pub score: f64,
+}
+
+/// Rerank response: `results` are sorted by descending relevance (highest first).
+#[derive(Debug, Clone)]
+pub struct RerankResponse {
+    pub results: Vec<RerankResult>,
+    pub model: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolSchema {
     pub name: String,

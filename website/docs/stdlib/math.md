@@ -211,6 +211,24 @@ Round to nearest integer.
 (round 3.4)   ; => 3
 ```
 
+### `math/round-to`
+
+Round to `places` decimal places, returning a float (where `round` only rounds to a whole integer).
+
+```sema
+(math/round-to 3.14159 2)   ; => 3.14
+(math/round-to 0.46666 3)   ; => 0.467
+```
+
+### `math/format-fixed`
+
+Format a number as a fixed-decimal **string**, padding trailing zeros to `places` digits — for money/metrics display where `math/round-to` (a float, which drops trailing zeros) isn't enough.
+
+```sema
+(math/format-fixed 1.2 3)     ; => "1.200"
+(math/format-fixed 3.14159 2) ; => "3.14"
+```
+
 ## Trigonometry
 
 ### `sin`

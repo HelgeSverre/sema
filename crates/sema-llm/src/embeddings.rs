@@ -1,5 +1,59 @@
 use crate::provider::LlmProvider;
-use crate::types::{ChatRequest, ChatResponse, EmbedRequest, EmbedResponse, LlmError, Usage};
+use crate::types::{
+    ChatRequest, ChatResponse, EmbedRequest, EmbedResponse, LlmError, RerankRequest,
+    RerankResponse, RerankResult, Usage,
+};
+
+/// The two hosted-rerank wire dialects behind the OpenAI-compatible embedding providers.
+/// They share `POST {base}/rerank` + `{model, query, documents}` but differ in the
+/// top-K parameter name and the results array key.
+#[derive(Clone, Copy)]
+pub enum RerankDialect {
+    /// Jina: `top_n` parameter, `results` array. Default model `jina-reranker-v2-base-multilingual`.
+    Jina,
+    /// Voyage: `top_k` parameter, `data` array. Default model `rerank-2.5`.
+    Voyage,
+}
+
+impl RerankDialect {
+    fn default_model(self) -> &'static str {
+        match self {
+            RerankDialect::Jina => "jina-reranker-v2-base-multilingual",
+            RerankDialect::Voyage => "rerank-2.5",
+        }
+    }
+    fn top_k_param(self) -> &'static str {
+        match self {
+            RerankDialect::Jina => "top_n",
+            RerankDialect::Voyage => "top_k",
+        }
+    }
+    fn results_key(self) -> &'static str {
+        match self {
+            RerankDialect::Jina => "results",
+            RerankDialect::Voyage => "data",
+        }
+    }
+}
+
+/// Parse the shared `[{index, relevance_score}]` rerank result array under `key`.
+fn parse_rerank_results(
+    api_resp: &serde_json::Value,
+    key: &str,
+) -> Result<Vec<RerankResult>, LlmError> {
+    let arr = api_resp
+        .get(key)
+        .and_then(|r| r.as_array())
+        .ok_or_else(|| LlmError::Parse(format!("missing {key} in rerank response")))?;
+    Ok(arr
+        .iter()
+        .filter_map(|item| {
+            let index = item.get("index").and_then(|v| v.as_u64())? as usize;
+            let score = item.get("relevance_score").and_then(|v| v.as_f64())?;
+            Some(RerankResult { index, score })
+        })
+        .collect())
+}
 
 /// An embedding-only provider that uses OpenAI-compatible embed API.
 /// Works for Jina, Voyage, and other providers with the same format.
@@ -8,6 +62,8 @@ pub struct OpenAiCompatEmbeddingProvider {
     api_key: String,
     base_url: String,
     default_model: String,
+    /// Set for providers that also offer a hosted reranker (Jina, Voyage).
+    rerank: Option<RerankDialect>,
     client: reqwest::Client,
     runtime: crate::http::BlockingRuntime,
 }
@@ -25,9 +81,57 @@ impl OpenAiCompatEmbeddingProvider {
             api_key,
             base_url,
             default_model,
+            rerank: None,
             client: crate::http::create_client(None)?,
             runtime,
         })
+    }
+
+    /// Enable hosted reranking via the given wire dialect (Jina / Voyage).
+    pub fn with_rerank(mut self, dialect: RerankDialect) -> Self {
+        self.rerank = Some(dialect);
+        self
+    }
+
+    async fn rerank_async(
+        &self,
+        request: RerankRequest,
+        dialect: RerankDialect,
+    ) -> Result<RerankResponse, LlmError> {
+        let model = request
+            .model
+            .unwrap_or_else(|| dialect.default_model().to_string());
+        let mut body = serde_json::json!({
+            "model": model,
+            "query": request.query,
+            "documents": request.documents,
+        });
+        if let Some(k) = request.top_k {
+            body[dialect.top_k_param()] = serde_json::json!(k);
+        }
+        let resp = self
+            .client
+            .post(format!("{}/rerank", self.base_url))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| LlmError::Http(e.to_string()))?;
+        let status = resp.status().as_u16();
+        if status != 200 {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(LlmError::Api {
+                status,
+                message: text,
+            });
+        }
+        let api_resp: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| LlmError::Parse(e.to_string()))?;
+        let results = parse_rerank_results(&api_resp, dialect.results_key())?;
+        Ok(RerankResponse { results, model })
     }
 
     async fn embed_async(&self, request: EmbedRequest) -> Result<EmbedResponse, LlmError> {
@@ -120,6 +224,16 @@ impl LlmProvider for OpenAiCompatEmbeddingProvider {
     fn embed(&self, request: EmbedRequest) -> Result<EmbedResponse, LlmError> {
         self.runtime.block_on(self.embed_async(request))
     }
+
+    fn rerank(&self, request: RerankRequest) -> Result<RerankResponse, LlmError> {
+        match self.rerank {
+            Some(dialect) => self.runtime.block_on(self.rerank_async(request, dialect)),
+            None => Err(LlmError::Config(format!(
+                "{} does not support reranking",
+                self.name
+            ))),
+        }
+    }
 }
 
 /// Cohere embedding provider — unique API format.
@@ -199,6 +313,41 @@ impl CohereEmbeddingProvider {
             },
         })
     }
+
+    async fn rerank_async(&self, request: RerankRequest) -> Result<RerankResponse, LlmError> {
+        let model = request.model.unwrap_or_else(|| "rerank-v3.5".to_string());
+        let mut body = serde_json::json!({
+            "model": model,
+            "query": request.query,
+            "documents": request.documents,
+        });
+        if let Some(k) = request.top_k {
+            body["top_n"] = serde_json::json!(k);
+        }
+        let resp = self
+            .client
+            .post("https://api.cohere.com/v2/rerank")
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| LlmError::Http(e.to_string()))?;
+        let status = resp.status().as_u16();
+        if status != 200 {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(LlmError::Api {
+                status,
+                message: text,
+            });
+        }
+        let api_resp: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| LlmError::Parse(e.to_string()))?;
+        let results = parse_rerank_results(&api_resp, "results")?;
+        Ok(RerankResponse { results, model })
+    }
 }
 
 impl LlmProvider for CohereEmbeddingProvider {
@@ -218,5 +367,9 @@ impl LlmProvider for CohereEmbeddingProvider {
 
     fn embed(&self, request: EmbedRequest) -> Result<EmbedResponse, LlmError> {
         self.runtime.block_on(self.embed_async(request))
+    }
+
+    fn rerank(&self, request: RerankRequest) -> Result<RerankResponse, LlmError> {
+        self.runtime.block_on(self.rerank_async(request))
     }
 }

@@ -17,7 +17,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::provider::LlmProvider;
 use crate::types::{
-    ChatRequest, ChatResponse, EmbedRequest, EmbedResponse, LlmError, ToolCall, Usage,
+    ChatRequest, ChatResponse, EmbedRequest, EmbedResponse, LlmError, RerankRequest,
+    RerankResponse, RerankResult, ToolCall, Usage,
 };
 
 /// One scripted interaction. The fake pops these in order as calls arrive.
@@ -31,6 +32,8 @@ pub enum FakeReply {
     },
     /// An embedding response.
     Embed(EmbedResponse),
+    /// A rerank response (scored results, highest-first).
+    Rerank(RerankResponse),
     /// Inject an error (for resilience tests).
     Error(LlmError),
 }
@@ -42,6 +45,7 @@ pub enum FakeReply {
 pub struct FakeRecorder {
     requests: Mutex<Vec<ChatRequest>>,
     embeds: Mutex<Vec<EmbedRequest>>,
+    reranks: Mutex<Vec<RerankRequest>>,
 }
 
 impl FakeRecorder {
@@ -53,6 +57,11 @@ impl FakeRecorder {
     /// All embedding requests received, in order.
     pub fn embeds(&self) -> Vec<EmbedRequest> {
         self.embeds.lock().unwrap().clone()
+    }
+
+    /// All rerank requests received, in order.
+    pub fn reranks(&self) -> Vec<RerankRequest> {
+        self.reranks.lock().unwrap().clone()
     }
 
     /// Number of chat/completion calls made.
@@ -190,6 +199,20 @@ impl FakeProviderBuilder {
         self
     }
 
+    /// Script a rerank reply: `results` is `(original_index, relevance_score)` pairs,
+    /// already ordered highest-relevance-first.
+    pub fn rerank(mut self, results: &[(usize, f64)]) -> Self {
+        let model = self.default_model.clone();
+        self.script.push_back(FakeReply::Rerank(RerankResponse {
+            results: results
+                .iter()
+                .map(|&(index, score)| RerankResult { index, score })
+                .collect(),
+            model,
+        }));
+        self
+    }
+
     /// Script an injected error (e.g. `LlmError::RateLimited`, `LlmError::Api`).
     pub fn error(mut self, err: LlmError) -> Self {
         self.script.push_back(FakeReply::Error(err));
@@ -245,8 +268,8 @@ impl LlmProvider for FakeProvider {
             Some(FakeReply::Chat(r)) => Ok(r),
             Some(FakeReply::Stream { response, .. }) => Ok(response),
             Some(FakeReply::Error(e)) => Err(e),
-            Some(FakeReply::Embed(_)) => Err(LlmError::Config(
-                "FakeProvider: complete() reached an embed-scripted reply".to_string(),
+            Some(FakeReply::Embed(_)) | Some(FakeReply::Rerank(_)) => Err(LlmError::Config(
+                "FakeProvider: complete() reached an embed/rerank-scripted reply".to_string(),
             )),
             None => Err(LlmError::Config(
                 "FakeProvider: no scripted reply left for complete()".to_string(),
@@ -272,8 +295,9 @@ impl LlmProvider for FakeProvider {
                 Ok(r)
             }
             Some(FakeReply::Error(e)) => Err(e),
-            Some(FakeReply::Embed(_)) => Err(LlmError::Config(
-                "FakeProvider: stream_complete() reached an embed-scripted reply".to_string(),
+            Some(FakeReply::Embed(_)) | Some(FakeReply::Rerank(_)) => Err(LlmError::Config(
+                "FakeProvider: stream_complete() reached an embed/rerank-scripted reply"
+                    .to_string(),
             )),
             None => Err(LlmError::Config(
                 "FakeProvider: no scripted reply left for stream_complete()".to_string(),
@@ -292,6 +316,17 @@ impl LlmProvider for FakeProvider {
             Some(FakeReply::Error(e)) => Err(e),
             _ => Err(LlmError::Config(
                 "FakeProvider: no scripted embed reply left".to_string(),
+            )),
+        }
+    }
+
+    fn rerank(&self, request: RerankRequest) -> Result<RerankResponse, LlmError> {
+        self.recorder.reranks.lock().unwrap().push(request);
+        match self.next() {
+            Some(FakeReply::Rerank(r)) => Ok(r),
+            Some(FakeReply::Error(e)) => Err(e),
+            _ => Err(LlmError::Config(
+                "FakeProvider: no scripted rerank reply left".to_string(),
             )),
         }
     }

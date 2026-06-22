@@ -4,7 +4,7 @@ mod common;
 use sema_core::Value;
 
 // ============================================================
-// Text processing — dual eval (tree-walker + VM)
+// Text processing
 // ============================================================
 
 eval_tests! {
@@ -26,7 +26,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Terminal / ANSI — dual eval (tree-walker + VM)
+// Terminal / ANSI
 // ============================================================
 
 eval_tests! {
@@ -48,7 +48,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Pretty print — dual eval (tree-walker + VM)
+// Pretty print
 // ============================================================
 
 eval_tests! {
@@ -56,7 +56,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Context operations — dual eval (tree-walker + VM)
+// Context operations
 // ============================================================
 
 eval_tests! {
@@ -77,7 +77,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Prompt/Message primitives — dual eval (tree-walker + VM)
+// Prompt/Message primitives
 // ============================================================
 
 eval_tests! {
@@ -109,7 +109,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Conversation — dual eval (tree-walker + VM)
+// Conversation
 // ============================================================
 
 eval_tests! {
@@ -134,7 +134,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Document operations — dual eval (tree-walker + VM)
+// Document operations
 // ============================================================
 
 eval_tests! {
@@ -143,7 +143,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Tool/Agent definitions — dual eval (tree-walker + VM)
+// Tool/Agent definitions
 // ============================================================
 
 eval_tests! {
@@ -156,7 +156,7 @@ eval_tests! {
 }
 
 // ============================================================
-// LLM utility functions (no API calls) — dual eval (tree-walker + VM)
+// LLM utility functions (no API calls)
 // ============================================================
 
 eval_tests! {
@@ -168,7 +168,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Retry — dual eval (tree-walker + VM)
+// Retry
 // ============================================================
 
 eval_tests! {
@@ -177,7 +177,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Log (side-effect, returns nil) — dual eval (tree-walker + VM)
+// Log (side-effect, returns nil)
 // ============================================================
 
 eval_tests! {
@@ -186,7 +186,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Datetime — dual eval (tree-walker + VM)
+// Datetime
 // ============================================================
 
 // All tests use fixed timestamps via time/parse to avoid flakiness.
@@ -277,7 +277,7 @@ eval_error_tests! {
 }
 
 // ============================================================
-// HTTP response helpers — dual eval (tree-walker + VM)
+// HTTP response helpers
 // ============================================================
 
 eval_tests! {
@@ -323,7 +323,7 @@ eval_tests! {
 }
 
 // ============================================================
-// String operations — dual eval (tree-walker + VM)
+// String operations
 // ============================================================
 
 eval_tests! {
@@ -341,7 +341,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Math operations — dual eval (tree-walker + VM)
+// Math operations
 // ============================================================
 
 eval_tests! {

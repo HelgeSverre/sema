@@ -371,8 +371,7 @@ SSE is particularly useful for streaming LLM completions to the browser:
     (fn (send)
       (let ((prompt (:prompt (:json req))))
         ;; Stream each token as an SSE event
-        (llm/chat {:prompt prompt
-                   :stream (fn (token) (send token))})))))
+        (llm/stream prompt (fn (token) (send token)))))))
 ```
 
 ## WebSocket
@@ -510,14 +509,16 @@ An API endpoint that uses Sema's built-in LLM primitives to generate responses.
 (define (handle-summarize req)
   (let ((text (:text (:json req))))
     (if text
-      (http/ok {:summary (llm/chat (str "Summarize this:\n\n" text))})
+      (http/ok {:summary (llm/complete (str "Summarize this:\n\n" text))})
       (http/error 400 {:error "Missing 'text' field"}))))
 
 (define (handle-extract req)
   (let ((text (:text (:json req))))
-    (http/ok (llm/extract text {:name "string"
-                                 :date "string"
-                                 :amount "number"}))))
+    ;; llm/extract takes the schema first, then the text.
+    (http/ok (llm/extract {:name "string"
+                           :date "string"
+                           :amount "number"}
+                          text))))
 
 (define routes
   [[:post "/summarize" handle-summarize]

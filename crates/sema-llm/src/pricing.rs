@@ -164,6 +164,18 @@ pub fn calculate_cost_for(provider: &str, usage: &Usage) -> Option<f64> {
     model_pricing_for(provider, &usage.model).map(|prices| cost_from(prices, usage))
 }
 
+/// Provider-aware cost split: `(prompt_cost, completion_cost)` in USD. Used to surface the
+/// per-direction breakdown some backends (OpenInference `llm.cost.prompt`/`.completion`)
+/// expect, alongside the combined total from [`calculate_cost_for`].
+pub fn calculate_cost_split_for(provider: &str, usage: &Usage) -> Option<(f64, f64)> {
+    model_pricing_for(provider, &usage.model).map(|(input, output)| {
+        (
+            usage.prompt_tokens as f64 * input / 1_000_000.0,
+            usage.completion_tokens as f64 * output / 1_000_000.0,
+        )
+    })
+}
+
 /// Set custom pricing for a model pattern (substring match), overriding the embedded snapshot.
 pub fn set_custom_pricing(model_pattern: &str, input_per_million: f64, output_per_million: f64) {
     CUSTOM_PRICING.with(|p| {

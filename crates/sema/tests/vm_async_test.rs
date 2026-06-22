@@ -1,6 +1,6 @@
 mod common;
 
-use common::eval_vm;
+use common::eval;
 use sema_core::{Caps, Sandbox, Value};
 
 fn eval_vm_err(input: &str) -> String {
@@ -13,7 +13,7 @@ fn eval_vm_err(input: &str) -> String {
 #[test]
 fn async_spawn_await() {
     assert_eq!(
-        eval_vm(r#"(let ((p (async/spawn (fn () (+ 1 2))))) (async/await p))"#),
+        eval(r#"(let ((p (async/spawn (fn () (+ 1 2))))) (async/await p))"#),
         Value::int(3)
     );
 }
@@ -23,7 +23,7 @@ fn async_spawn_await() {
 #[test]
 fn async_special_form() {
     assert_eq!(
-        eval_vm(r#"(let ((p (async (+ 10 20)))) (await p))"#),
+        eval(r#"(let ((p (async (+ 10 20)))) (await p))"#),
         Value::int(30)
     );
 }
@@ -33,7 +33,7 @@ fn async_special_form() {
 #[test]
 fn async_multi_body() {
     assert_eq!(
-        eval_vm(r#"(let ((p (async (define x 10) (define y 20) (+ x y)))) (await p))"#),
+        eval(r#"(let ((p (async (define x 10) (define y 20) (+ x y)))) (await p))"#),
         Value::int(30)
     );
 }
@@ -43,7 +43,7 @@ fn async_multi_body() {
 #[test]
 fn async_all() {
     assert_eq!(
-        eval_vm(
+        eval(
             r#"(let ((p1 (async (+ 1 1))) (p2 (async (+ 2 2))) (p3 (async (+ 3 3)))) (async/all (list p1 p2 p3)))"#
         ),
         Value::list(vec![Value::int(2), Value::int(4), Value::int(6)])
@@ -54,7 +54,7 @@ fn async_all() {
 
 #[test]
 fn async_resolved() {
-    assert_eq!(eval_vm("(async/await (async/resolved 42))"), Value::int(42));
+    assert_eq!(eval("(async/await (async/resolved 42))"), Value::int(42));
 }
 
 #[test]
@@ -71,20 +71,20 @@ fn async_rejected() {
 #[test]
 fn async_promise_predicate() {
     assert_eq!(
-        eval_vm("(async/promise? (async/resolved 1))"),
+        eval("(async/promise? (async/resolved 1))"),
         Value::bool(true)
     );
 }
 
 #[test]
 fn async_promise_predicate_false() {
-    assert_eq!(eval_vm("(async/promise? 42)"), Value::bool(false));
+    assert_eq!(eval("(async/promise? 42)"), Value::bool(false));
 }
 
 #[test]
 fn async_resolved_predicate() {
     assert_eq!(
-        eval_vm("(async/resolved? (async/resolved 1))"),
+        eval("(async/resolved? (async/resolved 1))"),
         Value::bool(true)
     );
 }
@@ -92,7 +92,7 @@ fn async_resolved_predicate() {
 #[test]
 fn async_rejected_predicate() {
     assert_eq!(
-        eval_vm(r#"(async/rejected? (async/rejected "x"))"#),
+        eval(r#"(async/rejected? (async/rejected "x"))"#),
         Value::bool(true)
     );
 }
@@ -100,10 +100,7 @@ fn async_rejected_predicate() {
 #[test]
 fn async_pending_predicate() {
     // A freshly spawned task is pending until awaited
-    assert_eq!(
-        eval_vm("(async/pending? (async (+ 1 2)))"),
-        Value::bool(true)
-    );
+    assert_eq!(eval("(async/pending? (async (+ 1 2)))"), Value::bool(true));
 }
 
 // === Channel basics ===
@@ -111,7 +108,7 @@ fn async_pending_predicate() {
 #[test]
 fn channel_send_recv() {
     assert_eq!(
-        eval_vm("(let ((ch (channel/new 3))) (channel/send ch 10) (channel/send ch 20) (channel/recv ch))"),
+        eval("(let ((ch (channel/new 3))) (channel/send ch 10) (channel/send ch 20) (channel/recv ch))"),
         Value::int(10)
     );
 }
@@ -119,7 +116,7 @@ fn channel_send_recv() {
 #[test]
 fn channel_fifo() {
     assert_eq!(
-        eval_vm("(let ((ch (channel/new 3))) (channel/send ch :a) (channel/send ch :b) (channel/recv ch) (channel/recv ch))"),
+        eval("(let ((ch (channel/new 3))) (channel/send ch :a) (channel/send ch :b) (channel/recv ch) (channel/recv ch))"),
         Value::keyword("b")
     );
 }
@@ -127,46 +124,43 @@ fn channel_fifo() {
 #[test]
 fn channel_count() {
     assert_eq!(
-        eval_vm("(let ((ch (channel/new 5))) (channel/send ch 1) (channel/send ch 2) (channel/count ch))"),
+        eval("(let ((ch (channel/new 5))) (channel/send ch 1) (channel/send ch 2) (channel/count ch))"),
         Value::int(2)
     );
 }
 
 #[test]
 fn channel_empty() {
-    assert_eq!(
-        eval_vm("(channel/empty? (channel/new 1))"),
-        Value::bool(true)
-    );
+    assert_eq!(eval("(channel/empty? (channel/new 1))"), Value::bool(true));
 }
 
 #[test]
 fn channel_predicate() {
-    assert_eq!(eval_vm("(channel? (channel/new 1))"), Value::bool(true));
+    assert_eq!(eval("(channel? (channel/new 1))"), Value::bool(true));
 }
 
 #[test]
 fn channel_predicate_false() {
-    assert_eq!(eval_vm("(channel? 42)"), Value::bool(false));
+    assert_eq!(eval("(channel? 42)"), Value::bool(false));
 }
 
 #[test]
 fn channel_close() {
     assert_eq!(
-        eval_vm("(let ((ch (channel/new 1))) (channel/close ch) (channel/closed? ch))"),
+        eval("(let ((ch (channel/new 1))) (channel/close ch) (channel/closed? ch))"),
         Value::bool(true)
     );
 }
 
 #[test]
 fn channel_try_recv_empty() {
-    assert_eq!(eval_vm("(channel/try-recv (channel/new 1))"), Value::nil());
+    assert_eq!(eval("(channel/try-recv (channel/new 1))"), Value::nil());
 }
 
 #[test]
 fn channel_full() {
     assert_eq!(
-        eval_vm("(let ((ch (channel/new 1))) (channel/send ch 42) (channel/full? ch))"),
+        eval("(let ((ch (channel/new 1))) (channel/send ch 42) (channel/full? ch))"),
         Value::bool(true)
     );
 }
@@ -176,7 +170,7 @@ fn channel_full() {
 #[test]
 fn async_producer_consumer() {
     assert_eq!(
-        eval_vm(
+        eval(
             r#"(let ((ch (channel/new 1)))
           (let ((producer (async (channel/send ch 42)))
                 (consumer (async (channel/recv ch))))
@@ -189,7 +183,7 @@ fn async_producer_consumer() {
 #[test]
 fn async_producer_consumer_multi() {
     assert_eq!(
-        eval_vm(
+        eval(
             r#"(let ((ch (channel/new 2)))
           (let ((producer (async
                   (channel/send ch 10)
@@ -209,7 +203,7 @@ fn async_producer_consumer_multi() {
 #[test]
 fn async_race_first_wins() {
     assert_eq!(
-        eval_vm(
+        eval(
             r#"(let ((fast (async/resolved 1))
               (slow (async (+ 2 2))))
           (async/race (list fast slow)))"#
@@ -223,7 +217,7 @@ fn async_race_returns_first_resolved_in_list_order() {
     // With real race semantics, the sender settles first after sending. The
     // blocked receiver is only woken on a later scheduler turn.
     assert_eq!(
-        eval_vm(
+        eval(
             r#"
             (let ((ch (channel/new 1)))
               (let ((first (async (channel/recv ch)))
@@ -242,7 +236,7 @@ fn async_race_returns_first_resolved_in_list_order() {
 #[test]
 fn async_sleep_returns_nil() {
     assert_eq!(
-        eval_vm("(let ((p (async (async/sleep 0)))) (await p))"),
+        eval("(let ((p (async (async/sleep 0)))) (await p))"),
         Value::nil()
     );
 }
@@ -254,7 +248,7 @@ fn sleep_duration_determines_wake_order_not_spawn_order() {
     // spawn order — the drained channel proves it. This is deterministic on
     // every platform (and instant in WASM, where the virtual clock advances
     // without real waits).
-    let out = eval_vm(
+    let out = eval(
         r#"
         (let ((out (channel/new 8)))
           (async/all
@@ -277,7 +271,7 @@ fn sleep_duration_determines_wake_order_not_spawn_order() {
 #[test]
 fn equal_sleeps_wake_in_spawn_order() {
     // Equal durations fall back to deterministic spawn (FIFO) order.
-    let out = eval_vm(
+    let out = eval(
         r#"
         (let ((out (channel/new 8)))
           (async/all
@@ -348,7 +342,7 @@ fn blocking_sleep_hook_receives_clock_advances() {
     // Sleeps 10/20/30 across three tasks: the virtual clock advances
     // 0->10->20->30, so the hook should be invoked with deltas summing to 30
     // (total virtual time), and ordering must still be a,b,c.
-    let out = eval_vm(
+    let out = eval(
         r#"
         (let ((out (channel/new 8)))
           (async/all
@@ -449,13 +443,13 @@ fn default_backend_accepts_async() {
 
 #[test]
 fn nested_async_await() {
-    assert_eq!(eval_vm("(await (async (await (async 7))))"), Value::int(7),);
+    assert_eq!(eval("(await (async (await (async 7))))"), Value::int(7),);
 }
 
 #[test]
 fn nested_async_multiple_awaits() {
     assert_eq!(
-        eval_vm("(await (async (+ (await (async 3)) (await (async 4)))))"),
+        eval("(await (async (+ (await (async 3)) (await (async 4)))))"),
         Value::int(7),
     );
 }
@@ -463,7 +457,7 @@ fn nested_async_multiple_awaits() {
 #[test]
 fn triple_nested_async() {
     assert_eq!(
-        eval_vm("(await (async (await (async (await (async 42))))))"),
+        eval("(await (async (await (async (await (async 42))))))"),
         Value::int(42),
     );
 }
@@ -477,7 +471,7 @@ fn triple_nested_async() {
 #[test]
 fn async_context_preserved_after_nested_run() {
     assert_eq!(
-        eval_vm(
+        eval(
             r#"
             (let ((ch (channel/new 1)))
               (await (async
@@ -511,7 +505,7 @@ fn channel_close_rejects_pending_send() {
 #[test]
 fn nested_async_with_channel() {
     assert_eq!(
-        eval_vm(
+        eval(
             r#"
             (let ((ch (channel/new 1)))
               (await (async
@@ -529,17 +523,14 @@ fn nested_async_with_channel() {
 #[test]
 fn timeout_resolved_in_time() {
     assert_eq!(
-        eval_vm("(async/timeout 1000 (async/resolved 42))"),
+        eval("(async/timeout 1000 (async/resolved 42))"),
         Value::int(42),
     );
 }
 
 #[test]
 fn timeout_task_completes_in_time() {
-    assert_eq!(
-        eval_vm("(async/timeout 1000 (async (+ 1 2)))"),
-        Value::int(3),
-    );
+    assert_eq!(eval("(async/timeout 1000 (async (+ 1 2)))"), Value::int(3),);
 }
 
 #[test]
@@ -583,11 +574,8 @@ fn timeout_zero_lets_ready_work_complete() {
     // trips once the virtual clock actually reaches the deadline with the task
     // still pending. (Regression guard: the deadline used to be checked before
     // the ready task ran, so this timed out instead of returning the value.)
-    assert_eq!(eval_vm("(async/timeout 0 (async 42))"), Value::int(42));
-    assert_eq!(
-        eval_vm("(async/timeout 1 (async (+ 20 22)))"),
-        Value::int(42)
-    );
+    assert_eq!(eval("(async/timeout 0 (async 42))"), Value::int(42));
+    assert_eq!(eval("(async/timeout 1 (async (+ 20 22)))"), Value::int(42));
 }
 
 #[test]
@@ -612,7 +600,7 @@ fn sleep_duration_is_capped() {
 #[test]
 fn async_race_returns_first_to_settle_not_list_order() {
     assert_eq!(
-        eval_vm("(async/race (list (async (async/sleep 100) :slow) (async :fast)))"),
+        eval("(async/race (list (async (async/sleep 100) :slow) (async :fast)))"),
         Value::keyword("fast"),
     );
 }
@@ -620,7 +608,7 @@ fn async_race_returns_first_to_settle_not_list_order() {
 #[test]
 fn async_all_ignores_unrelated_blocked_task() {
     assert_eq!(
-        eval_vm(
+        eval(
             r#"
             (let ((ch (channel/new 1)))
               (let ((bg (async (channel/recv ch)))
@@ -663,7 +651,7 @@ fn serial_list_respects_sandbox() {
 #[test]
 fn cancel_pending_task() {
     assert_eq!(
-        eval_vm(
+        eval(
             r#"
             (let ((ch (channel/new 1)))
               (let ((p (async (channel/recv ch))))
@@ -694,7 +682,7 @@ fn cancel_awaited_task_rejects() {
 #[test]
 fn cancel_completed_task_is_noop() {
     assert_eq!(
-        eval_vm(
+        eval(
             r#"
             (let ((p (async 42)))
               (await p)
@@ -714,7 +702,7 @@ fn channel_recv_via_local_variable_yields_correctly() {
     // op::CALL (not CALL_NATIVE or CALL_GLOBAL). The yield signal must
     // still be checked after call_value returns.
     assert_eq!(
-        eval_vm(
+        eval(
             r#"
             (let ((ch (channel/new 1))
                   (recv channel/recv))
@@ -731,7 +719,7 @@ fn channel_recv_via_local_variable_yields_correctly() {
 fn channel_send_via_local_variable_yields_correctly() {
     // Same bug but for channel/send through a local binding
     assert_eq!(
-        eval_vm(
+        eval(
             r#"
             (let ((ch (channel/new 1))
                   (send channel/send))
@@ -752,7 +740,7 @@ fn sleeping_task_unblocks_channel_recv() {
     // must not report deadlock when one task sleeps and another waits
     // on channel/recv.
     assert_eq!(
-        eval_vm(
+        eval(
             r#"
             (let ((ch (channel/new 1)))
               (async/spawn (fn () (async/sleep 1) (channel/send ch 42)))
@@ -777,7 +765,7 @@ fn async_all_rejects_on_any_failure() {
 
 #[test]
 fn async_all_empty_list() {
-    assert_eq!(eval_vm("(async/all (list))"), Value::list(vec![]));
+    assert_eq!(eval("(async/all (list))"), Value::list(vec![]));
 }
 
 // === async/race edge cases ===
@@ -808,7 +796,7 @@ fn async_race_all_rejected() {
 #[test]
 fn channel_recv_closed_empty_returns_nil() {
     assert_eq!(
-        eval_vm("(let ((ch (channel/new 1))) (channel/close ch) (channel/recv ch))"),
+        eval("(let ((ch (channel/new 1))) (channel/close ch) (channel/recv ch))"),
         Value::nil(),
     );
 }
@@ -818,7 +806,7 @@ fn channel_recv_wakes_on_close_with_nil() {
     // An async task blocked on recv should be woken with nil when
     // the channel is closed.
     assert_eq!(
-        eval_vm(
+        eval(
             r#"
             (let ((ch (channel/new 1)))
               (let ((consumer (async (channel/recv ch))))
@@ -880,7 +868,7 @@ fn channel_buffered_send_with_room() {
     // Exercises buf.len() < capacity when buffer is partially full.
     // Mutation testing found this path was untested (< vs == survived).
     assert_eq!(
-        eval_vm(
+        eval(
             r#"
             (let ((ch (channel/new 3)))
               (channel/send ch 1)
@@ -912,7 +900,7 @@ fn cancel_already_failed_task_is_noop() {
 #[test]
 fn channel_two_senders_one_receiver() {
     assert_eq!(
-        eval_vm(
+        eval(
             r#"
             (let ((ch (channel/new 2)))
               (let ((s1 (async (channel/send ch 10)))
@@ -939,7 +927,7 @@ fn for_each_callback_can_yield_on_full_channel() {
     // The 4th send must yield (buffer full) and resume after the consumer
     // drains. Sum should be 1+2+3+4+5 = 15.
     assert_eq!(
-        eval_vm(
+        eval(
             r#"
             (let ((ch (channel/new 3)))
               (let ((producer (async
@@ -984,7 +972,7 @@ fn native_callback_passed_directly_raises_clear_error() {
 fn map_callback_can_await_promise() {
     // map's callback awaits a per-item promise. All items should resolve.
     assert_eq!(
-        eval_vm(
+        eval(
             r#"
             (let ((p (async
                        (map (fn (n) (await (async (* n n))))
@@ -1035,7 +1023,7 @@ fn scheduler_picks_ready_tasks_in_spawn_order() {
     // Three sequential channel sends followed by three receives on a
     // capacity-1 channel. Before A1 (swap_remove): (1 3 2). Now: (1 2 3).
     assert_eq!(
-        eval_vm(
+        eval(
             r#"
             (let ((ch (channel/new 1)))
               (let ((s1 (async (channel/send ch 1)))
@@ -1055,7 +1043,7 @@ fn scheduler_picks_ready_tasks_in_spawn_order() {
 #[test]
 fn async_cancel_returns_true_when_transitioning_pending() {
     assert_eq!(
-        eval_vm(r#"(let ((p (async (async/sleep 100)))) (async/cancel p))"#),
+        eval(r#"(let ((p (async (async/sleep 100)))) (async/cancel p))"#),
         Value::bool(true),
     );
 }
@@ -1063,11 +1051,11 @@ fn async_cancel_returns_true_when_transitioning_pending() {
 #[test]
 fn async_cancel_returns_false_for_never_spawned_promise() {
     assert_eq!(
-        eval_vm(r#"(async/cancel (async/resolved 42))"#),
+        eval(r#"(async/cancel (async/resolved 42))"#),
         Value::bool(false),
     );
     assert_eq!(
-        eval_vm(r#"(async/cancel (async/rejected "x"))"#),
+        eval(r#"(async/cancel (async/rejected "x"))"#),
         Value::bool(false),
     );
 }
@@ -1075,7 +1063,7 @@ fn async_cancel_returns_false_for_never_spawned_promise() {
 #[test]
 fn async_cancel_returns_false_for_already_resolved_spawn() {
     assert_eq!(
-        eval_vm(r#"(let ((p (async 42))) (await p) (async/cancel p))"#),
+        eval(r#"(let ((p (async 42))) (await p) (async/cancel p))"#),
         Value::bool(false),
     );
 }
@@ -1083,7 +1071,7 @@ fn async_cancel_returns_false_for_already_resolved_spawn() {
 #[test]
 fn async_cancel_returns_false_on_double_cancel() {
     assert_eq!(
-        eval_vm(
+        eval(
             r#"(let ((p (async (async/sleep 100))))
                  (async/cancel p)
                  (async/cancel p))"#
@@ -1097,12 +1085,12 @@ fn async_cancel_returns_false_on_double_cancel() {
 fn async_cancelled_is_distinct_from_rejected_with_same_string() {
     // (async/rejected "cancelled") no longer fools async/cancelled?.
     assert_eq!(
-        eval_vm(r#"(async/cancelled? (async/rejected "cancelled"))"#),
+        eval(r#"(async/cancelled? (async/rejected "cancelled"))"#),
         Value::bool(false),
     );
     // It IS a real rejection though.
     assert_eq!(
-        eval_vm(r#"(async/rejected? (async/rejected "cancelled"))"#),
+        eval(r#"(async/rejected? (async/rejected "cancelled"))"#),
         Value::bool(true),
     );
 }
@@ -1111,7 +1099,7 @@ fn async_cancelled_is_distinct_from_rejected_with_same_string() {
 fn cancelled_promise_classifies_correctly() {
     // Cancelled is neither resolved nor rejected nor pending — they partition.
     assert_eq!(
-        eval_vm(
+        eval(
             r#"
             (let ((p (async (async/sleep 100))))
               (async/cancel p)

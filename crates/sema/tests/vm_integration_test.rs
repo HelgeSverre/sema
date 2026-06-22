@@ -9,222 +9,200 @@ fn eval_vm(input: &str) -> Value {
         .unwrap_or_else(|_| panic!("VM failed: {input}"))
 }
 
-/// Assert tree-walker and VM produce the same result
-fn assert_equiv(input: &str) {
-    let tw = {
-        let interp = Interpreter::new();
-        interp
-            .eval_str(input)
-            .unwrap_or_else(|_| panic!("tree-walker failed: {input}"))
-    };
-    let vm = {
-        let interp = Interpreter::new();
-        interp
-            .eval_str_compiled(input)
-            .unwrap_or_else(|_| panic!("VM failed: {input}"))
-    };
-    assert_eq!(tw, vm, "tree-walker vs VM mismatch for: {input}");
+/// Evaluate `input` on the VM and assert it succeeds. (This once cross-checked the
+/// tree-walker against the VM; with the tree-walker retired it is a single-evaluator
+/// smoke check that the construct evaluates without error — correctness for the
+/// canonical cases is pinned with a literal via [`assert_evals_to`].)
+fn assert_evals(input: &str) {
+    let interp = Interpreter::new();
+    interp
+        .eval_str_compiled(input)
+        .unwrap_or_else(|e| panic!("eval failed for `{input}`: {e}"));
 }
 
-/// Assert tree-walker and VM agree AND that they both equal `expected`.
-///
-/// `assert_equiv` alone only catches cases where the two backends diverge —
-/// a regression that breaks both backends in the same way would pass. Pinning
-/// canonical cases against a literal `Value` catches that class of bug at the
-/// foundational level.
-fn assert_equiv_eq(input: &str, expected: Value) {
-    let tw = {
-        let interp = Interpreter::new();
-        interp
-            .eval_str(input)
-            .unwrap_or_else(|_| panic!("tree-walker failed: {input}"))
-    };
-    let vm = {
-        let interp = Interpreter::new();
-        interp
-            .eval_str_compiled(input)
-            .unwrap_or_else(|_| panic!("VM failed: {input}"))
-    };
-    assert_eq!(tw, vm, "tree-walker vs VM mismatch for: {input}");
-    assert_eq!(
-        tw, expected,
-        "tree-walker result mismatch for: {input} (vm matched tw)"
-    );
+/// Evaluate `input` on the VM and assert it equals `expected` (a literal oracle —
+/// catches a regression that a bare smoke check would miss).
+fn assert_evals_to(input: &str, expected: Value) {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str_compiled(input)
+        .unwrap_or_else(|e| panic!("eval failed for `{input}`: {e}"));
+    assert_eq!(result, expected, "unexpected result for `{input}`");
 }
 
-// === Equivalence tests ===
+// === VM evaluation tests (smoke + literal oracle) ===
 
 #[test]
-fn test_equiv_arithmetic() {
+fn test_vm_arithmetic() {
     // Canonical arithmetic cases are pinned to literal expected values so a
-    // regression that breaks both backends identically is still caught here.
-    assert_equiv_eq("(+ 1 2)", Value::int(3));
-    assert_equiv_eq("(- 10 3)", Value::int(7));
-    assert_equiv_eq("(* 4 5)", Value::int(20));
-    assert_equiv_eq("(/ 10 2)", Value::int(5));
-    assert_equiv_eq("(+ 1 2.0)", Value::float(3.0));
-    assert_equiv_eq("(+ 1 2 3 4 5)", Value::int(15));
-    assert_equiv_eq("(* 2 3 4)", Value::int(24));
-    assert_equiv_eq("(- 100 1 2 3)", Value::int(94));
+    // regression that breaks evaluation is still caught here.
+    assert_evals_to("(+ 1 2)", Value::int(3));
+    assert_evals_to("(- 10 3)", Value::int(7));
+    assert_evals_to("(* 4 5)", Value::int(20));
+    assert_evals_to("(/ 10 2)", Value::int(5));
+    assert_evals_to("(+ 1 2.0)", Value::float(3.0));
+    assert_evals_to("(+ 1 2 3 4 5)", Value::int(15));
+    assert_evals_to("(* 2 3 4)", Value::int(24));
+    assert_evals_to("(- 100 1 2 3)", Value::int(94));
 }
 
 #[test]
-fn test_equiv_comparison() {
+fn test_vm_comparison() {
     // Canonical predicate/comparison cases pinned to literal expected values.
-    assert_equiv_eq("(< 1 2)", Value::bool(true));
-    assert_equiv_eq("(> 3 2)", Value::bool(true));
-    assert_equiv_eq("(= 42 42)", Value::bool(true));
-    assert_equiv_eq("(not #f)", Value::bool(true));
-    assert_equiv_eq("(< 2 1)", Value::bool(false));
-    assert_equiv_eq("(= 1 2)", Value::bool(false));
-    assert_equiv_eq("(not #t)", Value::bool(false));
-    assert_equiv_eq("(<= 1 1)", Value::bool(true));
-    assert_equiv_eq("(>= 2 3)", Value::bool(false));
+    assert_evals_to("(< 1 2)", Value::bool(true));
+    assert_evals_to("(> 3 2)", Value::bool(true));
+    assert_evals_to("(= 42 42)", Value::bool(true));
+    assert_evals_to("(not #f)", Value::bool(true));
+    assert_evals_to("(< 2 1)", Value::bool(false));
+    assert_evals_to("(= 1 2)", Value::bool(false));
+    assert_evals_to("(not #t)", Value::bool(false));
+    assert_evals_to("(<= 1 1)", Value::bool(true));
+    assert_evals_to("(>= 2 3)", Value::bool(false));
 }
 
 #[test]
-fn test_equiv_define_and_call() {
-    assert_equiv("(begin (define x 42) x)");
-    assert_equiv("(begin (define (square x) (* x x)) (square 5))");
+fn test_vm_define_and_call() {
+    assert_evals("(begin (define x 42) x)");
+    assert_evals("(begin (define (square x) (* x x)) (square 5))");
 }
 
 #[test]
-fn test_equiv_if() {
-    assert_equiv("(if #t 1 2)");
-    assert_equiv("(if #f 1 2)");
-    assert_equiv("(if (= 1 1) \"yes\" \"no\")");
+fn test_vm_if() {
+    assert_evals("(if #t 1 2)");
+    assert_evals("(if #f 1 2)");
+    assert_evals("(if (= 1 1) \"yes\" \"no\")");
 }
 
 #[test]
-fn test_equiv_let_forms() {
-    assert_equiv("(let ((x 10)) x)");
-    assert_equiv("(let ((x 1) (y 2)) (+ x y))");
-    assert_equiv("(let* ((x 1) (y (+ x 1))) y)");
+fn test_vm_let_forms() {
+    assert_evals("(let ((x 10)) x)");
+    assert_evals("(let ((x 1) (y 2)) (+ x y))");
+    assert_evals("(let* ((x 1) (y (+ x 1))) y)");
 }
 
 #[test]
-fn test_equiv_letrec() {
-    assert_equiv("(letrec ((even? (lambda (n) (if (= n 0) #t (odd? (- n 1))))) (odd? (lambda (n) (if (= n 0) #f (even? (- n 1)))))) (even? 10))");
+fn test_vm_letrec() {
+    assert_evals("(letrec ((even? (lambda (n) (if (= n 0) #t (odd? (- n 1))))) (odd? (lambda (n) (if (= n 0) #f (even? (- n 1)))))) (even? 10))");
 }
 
 #[test]
-fn test_equiv_closures() {
-    assert_equiv("(let ((x 10)) ((lambda () x)))");
-    assert_equiv("(let ((n 0)) (let ((inc (lambda () (set! n (+ n 1)) n))) (inc) (inc) (inc)))");
+fn test_vm_closures() {
+    assert_evals("(let ((x 10)) ((lambda () x)))");
+    assert_evals("(let ((n 0)) (let ((inc (lambda () (set! n (+ n 1)) n))) (inc) (inc) (inc)))");
 }
 
 #[test]
-fn test_equiv_recursion() {
-    assert_equiv("(begin (define (fact n) (if (= n 0) 1 (* n (fact (- n 1))))) (fact 10))");
+fn test_vm_recursion() {
+    assert_evals("(begin (define (fact n) (if (= n 0) 1 (* n (fact (- n 1))))) (fact 10))");
 }
 
 #[test]
-fn test_equiv_named_let() {
-    assert_equiv("(let loop ((n 5) (acc 1)) (if (= n 0) acc (loop (- n 1) (* acc n))))");
+fn test_vm_named_let() {
+    assert_evals("(let loop ((n 5) (acc 1)) (if (= n 0) acc (loop (- n 1) (* acc n))))");
 }
 
 #[test]
-fn test_equiv_do_loop() {
-    assert_equiv("(do ((i 0 (+ i 1))) ((= i 5) i))");
-    assert_equiv("(do ((i 0 (+ i 1)) (sum 0 (+ sum i))) ((= i 10) sum))");
+fn test_vm_do_loop() {
+    assert_evals("(do ((i 0 (+ i 1))) ((= i 5) i))");
+    assert_evals("(do ((i 0 (+ i 1)) (sum 0 (+ sum i))) ((= i 10) sum))");
 }
 
 #[test]
-fn test_equiv_try_catch_no_error() {
-    assert_equiv("(try 42 (catch e 99))");
+fn test_vm_try_catch_no_error() {
+    assert_evals("(try 42 (catch e 99))");
 }
 
 #[test]
-fn test_equiv_try_catch_runtime_error() {
-    assert_equiv("(try (/ 1 0) (catch e \"caught\"))");
+fn test_vm_try_catch_runtime_error() {
+    assert_evals("(try (/ 1 0) (catch e \"caught\"))");
 }
 
 #[test]
-fn test_equiv_try_catch_thrown_value() {
-    assert_equiv("(try (throw \"boom\") (catch e e))");
+fn test_vm_try_catch_thrown_value() {
+    assert_evals("(try (throw \"boom\") (catch e e))");
 }
 
 #[test]
-fn test_equiv_and_or() {
-    assert_equiv("(and)");
-    assert_equiv("(or)");
-    assert_equiv("(and #t 42)");
-    assert_equiv("(and #f 42)");
-    assert_equiv("(or 42 99)");
-    assert_equiv("(or #f 99)");
+fn test_vm_and_or() {
+    assert_evals("(and)");
+    assert_evals("(or)");
+    assert_evals("(and #t 42)");
+    assert_evals("(and #f 42)");
+    assert_evals("(or 42 99)");
+    assert_evals("(or #f 99)");
 }
 
 #[test]
-fn test_equiv_data_constructors() {
-    assert_equiv("(list 1 2 3)");
-    assert_equiv("[1 2 3]");
-    assert_equiv("'(a b c)");
+fn test_vm_data_constructors() {
+    assert_evals("(list 1 2 3)");
+    assert_evals("[1 2 3]");
+    assert_evals("'(a b c)");
 }
 
 #[test]
-fn test_equiv_rest_params() {
-    assert_equiv("((lambda (x . rest) rest) 1 2 3)");
-    assert_equiv("((lambda (x . rest) x) 1 2 3)");
+fn test_vm_rest_params() {
+    assert_evals("((lambda (x . rest) rest) 1 2 3)");
+    assert_evals("((lambda (x . rest) x) 1 2 3)");
 }
 
 #[test]
-fn test_equiv_begin() {
-    assert_equiv("(begin 1 2 3)");
-    assert_equiv("(begin)");
+fn test_vm_begin() {
+    assert_evals("(begin 1 2 3)");
+    assert_evals("(begin)");
 }
 
 #[test]
-fn test_equiv_set() {
-    assert_equiv("(begin (define x 1) (set! x 42) x)");
+fn test_vm_set() {
+    assert_evals("(begin (define x 1) (set! x 42) x)");
 }
 
 #[test]
-fn test_equiv_string_ops() {
-    assert_equiv("(string-length \"hello\")");
-    assert_equiv("(string-append \"a\" \"b\" \"c\")");
-    assert_equiv("(substring \"hello\" 1 3)");
+fn test_vm_string_ops() {
+    assert_evals("(string-length \"hello\")");
+    assert_evals("(string-append \"a\" \"b\" \"c\")");
+    assert_evals("(substring \"hello\" 1 3)");
 }
 
 #[test]
-fn test_equiv_list_ops() {
-    assert_equiv("(car '(1 2 3))");
-    assert_equiv("(cdr '(1 2 3))");
-    assert_equiv("(cons 1 '(2 3))");
-    assert_equiv("(length '(1 2 3))");
-    assert_equiv("(null? '())");
-    assert_equiv("(null? '(1))");
+fn test_vm_list_ops() {
+    assert_evals("(car '(1 2 3))");
+    assert_evals("(cdr '(1 2 3))");
+    assert_evals("(cons 1 '(2 3))");
+    assert_evals("(length '(1 2 3))");
+    assert_evals("(null? '())");
+    assert_evals("(null? '(1))");
 }
 
 #[test]
-fn test_equiv_higher_order() {
-    assert_equiv("(map (lambda (x) (* x x)) '(1 2 3 4))");
-    assert_equiv("(filter (lambda (x) (> x 2)) '(1 2 3 4 5))");
-    assert_equiv("(foldl + 0 '(1 2 3 4 5))");
+fn test_vm_higher_order() {
+    assert_evals("(map (lambda (x) (* x x)) '(1 2 3 4))");
+    assert_evals("(filter (lambda (x) (> x 2)) '(1 2 3 4 5))");
+    assert_evals("(foldl + 0 '(1 2 3 4 5))");
 }
 
 #[test]
-fn test_equiv_keyword_as_function() {
-    assert_equiv("(:a {:a 1 :b 2})");
-    assert_equiv("(:missing {:a 1})");
+fn test_vm_keyword_as_function() {
+    assert_evals("(:a {:a 1 :b 2})");
+    assert_evals("(:missing {:a 1})");
 }
 
 #[test]
-fn test_equiv_when_unless() {
-    assert_equiv("(when #t 42)");
-    assert_equiv("(when #f 42)");
-    assert_equiv("(unless #t 42)");
-    assert_equiv("(unless #f 42)");
+fn test_vm_when_unless() {
+    assert_evals("(when #t 42)");
+    assert_evals("(when #f 42)");
+    assert_evals("(unless #t 42)");
+    assert_evals("(unless #f 42)");
 }
 
 #[test]
-fn test_equiv_cond() {
-    assert_equiv("(cond (#f 1) (#t 2) (else 3))");
-    assert_equiv("(cond (#f 1) (#f 2) (else 3))");
+fn test_vm_cond() {
+    assert_evals("(cond (#f 1) (#t 2) (else 3))");
+    assert_evals("(cond (#f 1) (#f 2) (else 3))");
 }
 
 #[test]
-fn test_equiv_case() {
-    assert_equiv("(case 2 ((1) \"one\") ((2) \"two\") (else \"other\"))");
+fn test_vm_case() {
+    assert_evals("(case 2 ((1) \"one\") ((2) \"two\") (else \"other\"))");
 }
 
 // === Targeted delegate tests ===
@@ -294,8 +272,9 @@ fn test_vm_eval_delegate() {
 
 #[test]
 fn test_vm_apply() {
-    assert_equiv("(apply + '(1 2 3))");
-    assert_equiv("(apply list 1 2 '(3 4))");
+    assert_evals("(apply + '(1 2 3))");
+    assert_evals("(apply list 1 2 '(3 4))");
+    assert_evals("(apply list '(1 2 3))");
 }
 
 #[test]
@@ -336,12 +315,12 @@ fn test_vm_recursion_moderate_depth() {
 
 #[test]
 fn test_vm_map_literal() {
-    assert_equiv("{:a 1 :b 2}");
+    assert_evals("{:a 1 :b 2}");
 }
 
 #[test]
 fn test_vm_threading_macros() {
-    assert_equiv(
+    assert_evals(
         r#"(begin
           (defmacro -> (val . forms)
             (if (null? forms) val
@@ -351,7 +330,7 @@ fn test_vm_threading_macros() {
                   `(-> (,form ,val) ,@rest)))))
           (-> 5 (+ 3) (* 2)))"#,
     );
-    assert_equiv(
+    assert_evals(
         r#"(begin
           (defmacro ->> (val . forms)
             (if (null? forms) val
@@ -366,23 +345,23 @@ fn test_vm_threading_macros() {
 // === Higher-order functions with closures ===
 
 #[test]
-fn test_equiv_closure_returns_closure() {
-    assert_equiv("(begin (define (make-adder n) (lambda (x) (+ n x))) ((make-adder 5) 3))");
+fn test_vm_closure_returns_closure() {
+    assert_evals("(begin (define (make-adder n) (lambda (x) (+ n x))) ((make-adder 5) 3))");
 }
 
 #[test]
-fn test_equiv_compose() {
-    assert_equiv("(begin (define (compose f g) (lambda (x) (f (g x)))) (define inc (lambda (x) (+ x 1))) (define dbl (lambda (x) (* x 2))) ((compose dbl inc) 5))");
+fn test_vm_compose() {
+    assert_evals("(begin (define (compose f g) (lambda (x) (f (g x)))) (define inc (lambda (x) (+ x 1))) (define dbl (lambda (x) (* x 2))) ((compose dbl inc) 5))");
 }
 
 #[test]
-fn test_equiv_curry() {
-    assert_equiv("(begin (define (curry f) (lambda (x) (lambda (y) (f x y)))) (((curry +) 3) 4))");
+fn test_vm_curry() {
+    assert_evals("(begin (define (curry f) (lambda (x) (lambda (y) (f x y)))) (((curry +) 3) 4))");
 }
 
 #[test]
-fn test_equiv_partial_application() {
-    assert_equiv(
+fn test_vm_partial_application() {
+    assert_evals(
         r#"(begin
         (define (partial f . args)
             (lambda (. rest) (apply f (append args rest))))
@@ -392,100 +371,100 @@ fn test_equiv_partial_application() {
 }
 
 #[test]
-fn test_equiv_map_with_composed_fn() {
-    assert_equiv("(begin (define (compose f g) (lambda (x) (f (g x)))) (map (compose (lambda (x) (* x 2)) (lambda (x) (+ x 1))) (list 1 2 3)))");
+fn test_vm_map_with_composed_fn() {
+    assert_evals("(begin (define (compose f g) (lambda (x) (f (g x)))) (map (compose (lambda (x) (* x 2)) (lambda (x) (+ x 1))) (list 1 2 3)))");
 }
 
 #[test]
-fn test_equiv_filter_with_closure() {
-    assert_equiv("(begin (define (gt n) (lambda (x) (> x n))) (filter (gt 3) (list 1 2 3 4 5)))");
+fn test_vm_filter_with_closure() {
+    assert_evals("(begin (define (gt n) (lambda (x) (> x n))) (filter (gt 3) (list 1 2 3 4 5)))");
 }
 
 #[test]
-fn test_equiv_foldl_with_closure() {
-    assert_equiv("(foldl (lambda (acc x) (+ acc x)) 0 (list 1 2 3 4 5))");
+fn test_vm_foldl_with_closure() {
+    assert_evals("(foldl (lambda (acc x) (+ acc x)) 0 (list 1 2 3 4 5))");
 }
 
 #[test]
-fn test_equiv_nested_closures_3_levels() {
+fn test_vm_nested_closures_3_levels() {
     // 3 nested lambdas, fully called — should return 42
-    assert_equiv("((((lambda () (lambda () (lambda () 42))))))");
+    assert_evals("((((lambda () (lambda () (lambda () 42))))))");
     // 2 calls leaves a function — verify calling it produces 42
-    assert_equiv("((((lambda () (lambda () (lambda () 42))))))");
+    assert_evals("((((lambda () (lambda () (lambda () 42))))))");
 }
 
 // === Map/HashMap operations ===
 
 #[test]
-fn test_equiv_map_assoc() {
-    assert_equiv("(get (assoc {:a 1} :b 2) :b)");
+fn test_vm_map_assoc() {
+    assert_evals("(get (assoc {:a 1} :b 2) :b)");
 }
 
 #[test]
-fn test_equiv_map_merge() {
-    assert_equiv("(merge {:a 1} {:b 2})");
+fn test_vm_map_merge() {
+    assert_evals("(merge {:a 1} {:b 2})");
 }
 
 #[test]
-fn test_equiv_map_contains() {
-    assert_equiv("(contains? {:a 1 :b 2} :a)");
+fn test_vm_map_contains() {
+    assert_evals("(contains? {:a 1 :b 2} :a)");
 }
 
 #[test]
-fn test_equiv_map_dissoc() {
-    assert_equiv("(dissoc {:a 1 :b 2 :c 3} :b)");
+fn test_vm_map_dissoc() {
+    assert_evals("(dissoc {:a 1 :b 2 :c 3} :b)");
 }
 
 #[test]
-fn test_equiv_map_values() {
-    assert_equiv("(vals {:a 1 :b 2})");
+fn test_vm_map_values() {
+    assert_evals("(vals {:a 1 :b 2})");
 }
 
 #[test]
-fn test_equiv_hashmap_ops() {
-    assert_equiv("(begin (define h (hashmap/new :a 1 :b 2)) (get h :a))");
+fn test_vm_hashmap_ops() {
+    assert_evals("(begin (define h (hashmap/new :a 1 :b 2)) (get h :a))");
 }
 
 // === String operations ===
 
 #[test]
-fn test_equiv_string_ref() {
-    assert_equiv("(string-ref \"hello\" 0)");
+fn test_vm_string_ref() {
+    assert_evals("(string-ref \"hello\" 0)");
 }
 
 #[test]
-fn test_equiv_char_operations() {
-    assert_equiv("(char->integer #\\a)");
-    assert_equiv("(integer->char 65)");
+fn test_vm_char_operations() {
+    assert_evals("(char->integer #\\a)");
+    assert_evals("(integer->char 65)");
 }
 
 #[test]
-fn test_equiv_string_map() {
-    assert_equiv(r#"(string/map char-upcase "hello")"#);
+fn test_vm_string_map() {
+    assert_evals(r#"(string/map char-upcase "hello")"#);
 }
 
 // === Comprehension-style patterns ===
 
 #[test]
-fn test_equiv_flat_map() {
-    assert_equiv("(flat-map (lambda (x) (map (lambda (y) (list x y)) (list 1 2))) (list :a :b))");
+fn test_vm_flat_map() {
+    assert_evals("(flat-map (lambda (x) (map (lambda (y) (list x y)) (list 1 2))) (list :a :b))");
 }
 
 #[test]
-fn test_equiv_nested_map() {
-    assert_equiv("(map (lambda (x) (map (lambda (y) (* x y)) (list 1 2 3))) (list 10 20))");
+fn test_vm_nested_map() {
+    assert_evals("(map (lambda (x) (map (lambda (y) (* x y)) (list 1 2 3))) (list 10 20))");
 }
 
 // === do loop patterns ===
 
 #[test]
-fn test_equiv_do_with_body() {
-    assert_equiv("(let ((result '())) (do ((i 0 (+ i 1))) ((= i 5) (reverse result)) (set! result (cons i result))))");
+fn test_vm_do_with_body() {
+    assert_evals("(let ((result '())) (do ((i 0 (+ i 1))) ((= i 5) (reverse result)) (set! result (cons i result))))");
 }
 
 #[test]
-fn test_equiv_do_fizzbuzz() {
-    assert_equiv(
+fn test_vm_do_fizzbuzz() {
+    assert_evals(
         r#"(do ((i 1 (+ i 1)) (out '())) ((> i 15) (reverse out))
         (set! out (cons (cond ((= (mod i 15) 0) "FizzBuzz") ((= (mod i 3) 0) "Fizz") ((= (mod i 5) 0) "Buzz") (else i)) out)))"#,
     );
@@ -494,44 +473,44 @@ fn test_equiv_do_fizzbuzz() {
 // === Defmacro patterns ===
 
 #[test]
-fn test_equiv_defmacro_simple() {
-    assert_equiv("(begin (defmacro my-when (test body) (list 'if test body nil)) (my-when #t 42))");
+fn test_vm_defmacro_simple() {
+    assert_evals("(begin (defmacro my-when (test body) (list 'if test body nil)) (my-when #t 42))");
 }
 
 #[test]
-fn test_equiv_defmacro_called_twice() {
-    assert_equiv("(begin (defmacro double (x) (list '+ x x)) (list (double 3) (double 5)))");
+fn test_vm_defmacro_called_twice() {
+    assert_evals("(begin (defmacro double (x) (list '+ x x)) (list (double 3) (double 5)))");
 }
 
 // === Multi-expression defines (data-pipeline patterns) ===
 
 #[test]
-fn test_equiv_chained_map_filter() {
-    assert_equiv("(filter (lambda (x) (> x 5)) (map (lambda (x) (* x 2)) (list 1 2 3 4 5)))");
+fn test_vm_chained_map_filter() {
+    assert_evals("(filter (lambda (x) (> x 5)) (map (lambda (x) (* x 2)) (list 1 2 3 4 5)))");
 }
 
 #[test]
-fn test_equiv_reduce_map_values() {
-    assert_equiv("(foldl + 0 (map (lambda (x) (get x :val)) (list {:val 1} {:val 2} {:val 3})))");
+fn test_vm_reduce_map_values() {
+    assert_evals("(foldl + 0 (map (lambda (x) (get x :val)) (list {:val 1} {:val 2} {:val 3})))");
 }
 
 // === for-each ===
 
 #[test]
-fn test_equiv_for_each() {
-    assert_equiv("(begin (define result '()) (for-each (lambda (x) (set! result (cons x result))) (list 1 2 3)) (reverse result))");
+fn test_vm_for_each() {
+    assert_evals("(begin (define result '()) (for-each (lambda (x) (set! result (cons x result))) (list 1 2 3)) (reverse result))");
 }
 
 // === Recursive patterns ===
 
 #[test]
-fn test_equiv_assoc_list() {
-    assert_equiv("(assq 'Bob '((Alice \"555-1234\") (Bob \"555-5678\")))");
+fn test_vm_assoc_list() {
+    assert_evals("(assq 'Bob '((Alice \"555-1234\") (Bob \"555-5678\")))");
 }
 
 #[test]
-fn test_equiv_sort() {
-    assert_equiv("(sort (list 3 1 4 1 5 9))");
+fn test_vm_sort() {
+    assert_evals("(sort (list 3 1 4 1 5 9))");
 }
 
 // ============================================================================
@@ -549,7 +528,7 @@ fn test_bug_named_let_inside_define() {
     // named-let loop inside a defined function
     // The loop fn has name=Some, arity=1, and the self-ref overwrites slot 1
     // which may be used by locals in the loop body
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (test-fn n)
              (let loop ((i 0))
@@ -561,7 +540,7 @@ fn test_bug_named_let_inside_define() {
 #[test]
 fn test_bug_named_let_inside_lambda() {
     // Same bug when the named-let is inside a lambda passed to a HOF
-    assert_equiv(
+    assert_evals(
         "(map (lambda (n)
                 (let loop ((i 0))
                   (if (= i n) i (loop (+ i 1)))))
@@ -572,7 +551,7 @@ fn test_bug_named_let_inside_lambda() {
 #[test]
 fn test_bug_named_let_two_params_inside_define() {
     // Two-param named-let inside define, loop name at slot 2
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (repeat-string s n)
              (let loop ((i 0) (acc \"\"))
@@ -586,7 +565,7 @@ fn test_bug_named_let_two_params_inside_define() {
 fn test_bug_named_let_captures_outer_variable() {
     // named-let loop that captures a variable from the enclosing define
     // compile_named_let emits 0 upvalues, so n is unresolvable
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (is-prime? n)
              (let loop ((i 2))
@@ -601,7 +580,7 @@ fn test_bug_named_let_captures_outer_variable() {
 fn test_bug_named_let_nested_in_hof() {
     // named-let inside a lambda passed to any/every — the exact pattern
     // that fails in comprehensions.sema, scheme-basics.sema, etc.
-    assert_equiv(
+    assert_evals(
         "(any (lambda (n)
                 (let loop ((i 2))
                   (cond ((> (* i i) n) #t)
@@ -643,7 +622,7 @@ fn test_bug_arity_too_many_args() {
 #[test]
 fn test_bug_named_let_with_nested_lambda() {
     // named-let loop whose body creates a lambda — the inner lambda gets wrong func_id
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (build-list n)
              (let loop ((i 0) (acc '()))
@@ -656,7 +635,7 @@ fn test_bug_named_let_with_nested_lambda() {
 #[test]
 fn test_bug_named_let_body_uses_map() {
     // named-let body calls map with a lambda — nested lambda inside named-let
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (process items)
              (let loop ((xs items) (acc '()))
@@ -672,7 +651,7 @@ fn test_bug_named_let_body_uses_map() {
 #[test]
 fn test_bug_moderate_recursion_via_define() {
     // 50 recursive calls via a defined function — should not overflow
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (countdown n) (if (= n 0) 0 (countdown (- n 1))))
            (countdown 50))",
@@ -684,7 +663,7 @@ fn test_bug_moderate_recursion_via_define() {
 #[test]
 fn test_example_pattern_l_system() {
     // l-system.sema: string rewriting with named-let loop
-    assert_equiv(
+    assert_evals(
         r#"(begin
            (define (rewrite s rules)
              (let loop ((i 0) (acc ""))
@@ -703,7 +682,7 @@ fn test_example_pattern_l_system() {
 #[test]
 fn test_example_pattern_brainfuck_cell_ops() {
     // brainfuck.sema pattern: map-based state with assoc/get
-    assert_equiv(
+    assert_evals(
         "(begin
            (define mem {:ptr 0 :cells (list 0 0 0)})
            (get mem :ptr))",
@@ -713,7 +692,7 @@ fn test_example_pattern_brainfuck_cell_ops() {
 #[test]
 fn test_example_pattern_lazy_streams() {
     // lazy.sema: cons-based streams with delay/force
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (stream-cons head tail-thunk) (list head tail-thunk))
            (define (stream-car s) (car s))
@@ -726,7 +705,7 @@ fn test_example_pattern_lazy_streams() {
 #[test]
 fn test_example_pattern_string_iteration() {
     // Pattern from multiple examples: iterating over string characters
-    assert_equiv(
+    assert_evals(
         r#"(begin
            (define (count-chars s ch)
              (let loop ((i 0) (count 0))
@@ -739,7 +718,7 @@ fn test_example_pattern_string_iteration() {
 #[test]
 fn test_example_pattern_recursive_tree_walk() {
     // Pattern from huffman-coding, meta-eval: recursive tree walking
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (tree-sum tree)
              (if (number? tree) tree
@@ -751,7 +730,7 @@ fn test_example_pattern_recursive_tree_walk() {
 #[test]
 fn test_example_pattern_math_fold() {
     // math-and-crypto.sema: fold over range with closures
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (factorial n)
              (foldl * 1 (range 1 (+ n 1))))
@@ -763,7 +742,7 @@ fn test_example_pattern_math_fold() {
 fn test_example_pattern_defmacro_with_named_let() {
     // Pattern used in comprehensions.sema and others:
     // defmacro that generates code using named-let
-    assert_equiv(
+    assert_evals(
         "(begin
            (defmacro repeat-n (n body)
              `(let loop ((i 0) (acc '()))
@@ -776,7 +755,7 @@ fn test_example_pattern_defmacro_with_named_let() {
 #[test]
 fn test_example_pattern_modules_import() {
     // Sema modules are file-path-based (Decision #19)
-    assert_equiv(
+    assert_evals(
         "(begin
            (file/write \"/tmp/sema-vm-test-mod.sema\"
              \"(module math (export square) (define (square x) (* x x)))\")
@@ -788,7 +767,7 @@ fn test_example_pattern_modules_import() {
 #[test]
 fn test_example_pattern_modules_selective_import() {
     // Selective import: (import "path" sym1 sym2) with bare symbols
-    assert_equiv(
+    assert_evals(
         "(begin
            (file/write \"/tmp/sema-vm-test-sel.sema\"
              \"(module sel (export square cube) (define (square x) (* x x)) (define (cube x) (* x x x)))\")
@@ -804,7 +783,7 @@ fn test_example_pattern_modules_selective_import() {
 #[test]
 fn test_bug_recursion_depth_50() {
     // 50 recursive calls — works on test thread's smaller stack
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (count n) (if (= n 0) 0 (count (- n 1))))
            (count 50))",
@@ -814,7 +793,7 @@ fn test_bug_recursion_depth_50() {
 #[test]
 fn test_bug_recursion_depth_1000() {
     // Tree-walker handles 10000+ easily; VM should handle 1000
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (count n) (if (= n 0) 0 (count (- n 1))))
            (count 1000))",
@@ -824,7 +803,7 @@ fn test_bug_recursion_depth_1000() {
 #[test]
 fn test_bug_tail_recursion_depth_100000() {
     // Named-let loop with TCO — should handle any depth
-    assert_equiv(
+    assert_evals(
         "(let loop ((n 100000) (acc 0))
            (if (= n 0) acc (loop (- n 1) (+ acc n))))",
     );
@@ -832,7 +811,7 @@ fn test_bug_tail_recursion_depth_100000() {
 
 #[test]
 fn test_bug_mutual_recursion_depth() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (even? n) (if (= n 0) #t (odd? (- n 1))))
            (define (odd? n) (if (= n 0) #f (even? (- n 1))))
@@ -849,7 +828,7 @@ fn test_bug_mutual_recursion_depth() {
 
 #[test]
 fn test_complex_currying() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (curry2 f) (fn (a) (fn (b) (f a b))))
            (define add (curry2 +))
@@ -860,7 +839,7 @@ fn test_complex_currying() {
 
 #[test]
 fn test_complex_pipe_composition() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (pipe . fns)
              (foldl (fn (acc f) (fn (x) (f (acc x)))) (fn (x) x) fns))
@@ -872,7 +851,7 @@ fn test_complex_pipe_composition() {
 
 #[test]
 fn test_complex_bst_insert_inorder() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (make-tree val left right) (list val left right))
            (define (tree-val t) (first t))
@@ -898,7 +877,7 @@ fn test_complex_bst_insert_inorder() {
 
 #[test]
 fn test_complex_collatz_sequence() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (collatz n)
              (let loop ((x n) (steps 0))
@@ -914,7 +893,7 @@ fn test_complex_collatz_sequence() {
 
 #[test]
 fn test_complex_caar_cadr_compositions() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define nested '((1 2 3) (4 5 6) (7 8 9)))
            (list (caar nested) (cadr nested) (caddr nested) (cadar nested)))",
@@ -923,7 +902,7 @@ fn test_complex_caar_cadr_compositions() {
 
 #[test]
 fn test_complex_do_loop_factorial() {
-    assert_equiv(
+    assert_evals(
         "(do ((n 10 (- n 1)) (acc 1 (* acc n)))
            ((= n 0) acc))",
     );
@@ -931,7 +910,7 @@ fn test_complex_do_loop_factorial() {
 
 #[test]
 fn test_complex_sieve_of_eratosthenes() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (sieve-primes n)
              (let loop ((candidates (range 2 n)) (primes '()))
@@ -949,7 +928,7 @@ fn test_complex_sieve_of_eratosthenes() {
 
 #[test]
 fn test_complex_word_frequency() {
-    assert_equiv(
+    assert_evals(
         r#"(begin
            (define words (string/split "the cat sat on the mat the cat" " "))
            (define freq
@@ -964,7 +943,7 @@ fn test_complex_word_frequency() {
 
 #[test]
 fn test_complex_record_linked_list() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define-record-type Cell
              (make-cell head tail) cell?
@@ -984,7 +963,7 @@ fn test_complex_record_linked_list() {
 
 #[test]
 fn test_complex_set_operations() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (set . elems)
              (foldl (fn (s e) (assoc s e #t)) {} elems))
@@ -1002,7 +981,7 @@ fn test_complex_set_operations() {
 
 #[test]
 fn test_complex_power_set_count() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (power-set items)
              (foldl (fn (subsets elem)
@@ -1018,7 +997,7 @@ fn test_complex_power_set_count() {
 
 #[test]
 fn test_complex_matrix_multiply() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (transpose m)
              (map (fn (c) (map (fn (row) (nth row c)) m))
@@ -1039,7 +1018,7 @@ fn test_complex_matrix_multiply() {
 
 #[test]
 fn test_complex_thread_first() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (defmacro -> (val . forms)
              (if (null? forms) val
@@ -1053,7 +1032,7 @@ fn test_complex_thread_first() {
 
 #[test]
 fn test_complex_thread_last() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (defmacro ->> (val . forms)
              (if (null? forms) val
@@ -1067,7 +1046,7 @@ fn test_complex_thread_last() {
 
 #[test]
 fn test_complex_thread_as() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (defmacro as-> (val name . forms)
              (if (null? forms) val
@@ -1082,7 +1061,7 @@ fn test_complex_thread_as() {
 
 #[test]
 fn test_complex_comprehension_cartesian() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (defmacro for/list (bindings body)
              (define (expand bs)
@@ -1100,7 +1079,7 @@ fn test_complex_comprehension_cartesian() {
 
 #[test]
 fn test_complex_fsm_transitions() {
-    assert_equiv(
+    assert_evals(
         r#"(begin
            (define door-fsm
              (hash-map
@@ -1119,7 +1098,7 @@ fn test_complex_fsm_transitions() {
 
 #[test]
 fn test_complex_multimethod_dispatch() {
-    assert_equiv(
+    assert_evals(
         r#"(begin
            (define (make-multi dispatch-fn)
              {:dispatch-fn dispatch-fn :methods {} :default nil})
@@ -1157,7 +1136,7 @@ fn test_complex_multimethod_dispatch() {
 
 #[test]
 fn test_complex_caesar_cipher() {
-    assert_equiv(
+    assert_evals(
         r#"(begin
            (define (caesar text shift)
              (list->string
@@ -1174,7 +1153,7 @@ fn test_complex_caesar_cipher() {
 
 #[test]
 fn test_complex_roman_numeral_int_to_roman() {
-    assert_equiv(
+    assert_evals(
         r#"(begin
            (define roman-table
              (list (list 1000 "M") (list 900 "CM") (list 500 "D") (list 400 "CD")
@@ -1197,7 +1176,7 @@ fn test_complex_roman_numeral_int_to_roman() {
 
 #[test]
 fn test_complex_ip_address_packing() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (ip-to-int a b c d)
              (bit/or
@@ -1216,7 +1195,7 @@ fn test_complex_ip_address_packing() {
 
 #[test]
 fn test_complex_hanoi_move_count() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (hanoi-moves n)
              (letrec ((solve (fn (n from to aux count)
@@ -1231,7 +1210,7 @@ fn test_complex_hanoi_move_count() {
 
 #[test]
 fn test_complex_merge_sort() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (merge xs ys)
              (cond
@@ -1253,7 +1232,7 @@ fn test_complex_merge_sort() {
 
 #[test]
 fn test_complex_quicksort() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (qsort lst)
              (if (<= (length lst) 1) lst
@@ -1272,7 +1251,7 @@ fn test_complex_quicksort() {
 #[test]
 fn test_complex_nested_named_let() {
     // Two nested named-let loops
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (matrix-to-list rows cols)
              (let outer ((r 0) (result '()))
@@ -1290,7 +1269,7 @@ fn test_complex_nested_named_let() {
 #[test]
 fn test_complex_named_let_with_closures() {
     // Named-let body creates closures that capture loop variables
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (make-adders n)
              (let loop ((i 0) (acc '()))
@@ -1305,7 +1284,7 @@ fn test_complex_named_let_with_closures() {
 
 #[test]
 fn test_complex_data_pipeline() {
-    assert_equiv(
+    assert_evals(
         r#"(begin
            (define records
              (list {:name "Alice" :score 95 :city "Berlin"}
@@ -1324,7 +1303,7 @@ fn test_complex_data_pipeline() {
 
 #[test]
 fn test_complex_cellular_automata_rule90() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (rule-to-bits rule)
              (map (fn (i) (if (= 0 (bit/and rule (bit/shift-left 1 i))) 0 1))
@@ -1356,7 +1335,7 @@ fn test_complex_lazy_stream_take() {
     // stream-cons uses explicit thunks (fn () ...) — per SRFI-41, stream-cons
     // must delay the tail; without a macro, we use explicit thunk functions.
     // Streams are 2-element lists: (value thunk), matching examples/lazy.sema.
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (stream-cons h t) (list h t))
            (define (stream-car s) (car s))
@@ -1379,7 +1358,7 @@ fn test_complex_lazy_stream_take() {
 
 #[test]
 fn test_complex_mutual_recursion_even_odd() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (my-even? n) (if (= n 0) #t (my-odd? (- n 1))))
            (define (my-odd? n) (if (= n 0) #f (my-even? (- n 1))))
@@ -1391,7 +1370,7 @@ fn test_complex_mutual_recursion_even_odd() {
 
 #[test]
 fn test_complex_closure_counter_factory() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (make-counter start step)
              (let ((n start))
@@ -1407,7 +1386,7 @@ fn test_complex_closure_counter_factory() {
 
 #[test]
 fn test_complex_closure_memoize() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (memoize f)
              (let ((cache (hash-map)))
@@ -1429,7 +1408,7 @@ fn test_complex_closure_memoize() {
 
 #[test]
 fn test_complex_try_catch_in_map() {
-    assert_equiv(
+    assert_evals(
         r#"(begin
            (define (safe-div a b)
              (try (/ a b) (catch e "error")))
@@ -1439,7 +1418,7 @@ fn test_complex_try_catch_in_map() {
 
 #[test]
 fn test_complex_nested_try_catch() {
-    assert_equiv(
+    assert_evals(
         r#"(try
            (begin
              (define result
@@ -1455,7 +1434,7 @@ fn test_complex_nested_try_catch() {
 
 #[test]
 fn test_complex_apply_patterns() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (my-sum . nums) (foldl + 0 nums))
            (list
@@ -1469,7 +1448,7 @@ fn test_complex_apply_patterns() {
 
 #[test]
 fn test_complex_flatten_nested_lists() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (flatten lst)
              (cond
@@ -1483,7 +1462,7 @@ fn test_complex_flatten_nested_lists() {
 
 #[test]
 fn test_complex_zip_and_unzip() {
-    assert_equiv(
+    assert_evals(
         "(begin
            (define (zip . lists)
              (if (any null? lists) '()
@@ -1496,7 +1475,7 @@ fn test_complex_zip_and_unzip() {
 
 #[test]
 fn test_recursive_inner_define() {
-    assert_equiv(
+    assert_evals(
         "(define (sum-to n)
            (define (loop i acc)
              (if (> i n) acc (loop (+ i 1) (+ acc i))))
@@ -1507,7 +1486,7 @@ fn test_recursive_inner_define() {
 
 #[test]
 fn test_recursive_inner_define_with_outer_capture() {
-    assert_equiv(
+    assert_evals(
         r#"(define (int->hex n)
              (define digits "0123456789ABCDEF")
              (define (digit k) (substring digits k (+ k 1)))
@@ -1522,7 +1501,7 @@ fn test_recursive_inner_define_with_outer_capture() {
 
 #[test]
 fn test_multiple_inner_defines() {
-    assert_equiv(
+    assert_evals(
         "(define (f x)
            (define a 10)
            (define (add-a y) (+ a y))
@@ -1561,7 +1540,7 @@ fn test_delay_captures_closure_variable() {
 
 #[test]
 fn test_complex_deep_let_star() {
-    assert_equiv(
+    assert_evals(
         "(let* ((a 1)
                 (b (+ a 1))
                 (c (* b 2))
@@ -1576,93 +1555,87 @@ fn test_complex_deep_let_star() {
 
 // === Promise / delay-force ===
 #[test]
-fn test_equiv_delay_force() {
-    assert_equiv("(force (delay 42))");
-    assert_equiv("(force (delay (+ 1 2)))");
-    assert_equiv("(let ((p (delay (* 6 7)))) (+ (force p) (force p)))");
+fn test_vm_delay_force() {
+    assert_evals("(force (delay 42))");
+    assert_evals("(force (delay (+ 1 2)))");
+    assert_evals("(let ((p (delay (* 6 7)))) (+ (force p) (force p)))");
 }
 
 // === Nested maps ===
 #[test]
-fn test_equiv_nested_maps() {
-    assert_equiv("(get {:a {:b 1}} :a)");
-    assert_equiv("(get (get {:a {:b 42}} :a) :b)");
-    assert_equiv("(assoc {:x 1} :y 2)");
+fn test_vm_nested_maps() {
+    assert_evals("(get {:a {:b 1}} :a)");
+    assert_evals("(get (get {:a {:b 42}} :a) :b)");
+    assert_evals("(assoc {:x 1} :y 2)");
 }
 
 // === Variadic arithmetic ===
 #[test]
-fn test_equiv_variadic_arithmetic() {
-    assert_equiv("(+ 1 2 3 4 5)");
-    assert_equiv("(* 1 2 3 4)");
-    assert_equiv("(- 10)");
-    assert_equiv("(- 10 3 2)");
+fn test_vm_variadic_arithmetic() {
+    assert_evals("(+ 1 2 3 4 5)");
+    assert_evals("(* 1 2 3 4)");
+    assert_evals("(- 10)");
+    assert_evals("(- 10 3 2)");
 }
 
 // === Multiple return values from begin ===
 #[test]
-fn test_equiv_begin_returns_last() {
-    assert_equiv("(begin 1 2 3)");
-    assert_equiv("(begin (define x 5) (+ x 1))");
+fn test_vm_begin_returns_last() {
+    assert_evals("(begin 1 2 3)");
+    assert_evals("(begin (define x 5) (+ x 1))");
 }
 
 // === Tail-recursive functions ===
 #[test]
-fn test_equiv_tail_recursion_deep() {
-    assert_equiv("(let loop ((n 1000) (acc 0)) (if (= n 0) acc (loop (- n 1) (+ acc n))))");
+fn test_vm_tail_recursion_deep() {
+    assert_evals("(let loop ((n 1000) (acc 0)) (if (= n 0) acc (loop (- n 1) (+ acc n))))");
 }
 
 // === Bytevectors ===
 #[test]
-fn test_equiv_bytevectors() {
-    assert_equiv("(bytevector 1 2 3)");
-    assert_equiv("(bytevector-length (bytevector 10 20 30))");
-    assert_equiv("(bytevector-u8-ref (bytevector 10 20 30) 1)");
+fn test_vm_bytevectors() {
+    assert_evals("(bytevector 1 2 3)");
+    assert_evals("(bytevector-length (bytevector 10 20 30))");
+    assert_evals("(bytevector-u8-ref (bytevector 10 20 30) 1)");
 }
 
 // === Records ===
 #[test]
-fn test_equiv_records() {
-    assert_equiv("(begin (define-record-type point (make-point x y) point? (x point-x) (y point-y)) (point-x (make-point 3 4)))");
-    assert_equiv("(begin (define-record-type point (make-point x y) point? (x point-x) (y point-y)) (point? (make-point 1 2)))");
+fn test_vm_records() {
+    assert_evals("(begin (define-record-type point (make-point x y) point? (x point-x) (y point-y)) (point-x (make-point 3 4)))");
+    assert_evals("(begin (define-record-type point (make-point x y) point? (x point-x) (y point-y)) (point? (make-point 1 2)))");
 }
 
 // === Threading macros ===
 // VM doesn't support this yet — `->` and `->>` are unbound (not built-in, likely require macro import)
 // #[test]
-// fn test_equiv_threading() {
-//     assert_equiv("(-> 5 (+ 3) (* 2))");
-//     assert_equiv("(->> (list 1 2 3 4 5) (filter even?) (map (fn (x) (* x x))))");
+// fn test_vm_threading() {
+//     assert_evals("(-> 5 (+ 3) (* 2))");
+//     assert_evals("(->> (list 1 2 3 4 5) (filter even?) (map (fn (x) (* x x))))");
 // }
 
 // === Quasiquote / unquote ===
 #[test]
-fn test_equiv_quasiquote() {
-    assert_equiv("(let ((x 42)) `(a ,x c))");
-    assert_equiv("(let ((xs '(1 2 3))) `(a ,@xs b))");
+fn test_vm_quasiquote() {
+    assert_evals("(let ((x 42)) `(a ,x c))");
+    assert_evals("(let ((xs '(1 2 3))) `(a ,@xs b))");
 }
 
 // === Error equivalence ===
 #[test]
-fn test_equiv_try_catch_types() {
-    assert_equiv("(try (/ 1 0) (catch e (get e :type)))");
-    assert_equiv("(try (+ 1 \"a\") (catch e (get e :type)))");
-    assert_equiv("(try (throw \"boom\") (catch e (get e :type)))");
+fn test_vm_try_catch_types() {
+    assert_evals("(try (/ 1 0) (catch e (get e :type)))");
+    assert_evals("(try (+ 1 \"a\") (catch e (get e :type)))");
+    assert_evals("(try (throw \"boom\") (catch e (get e :type)))");
 }
 
 // === Mutual recursion ===
 #[test]
-fn test_equiv_mutual_recursion() {
-    assert_equiv("(begin (define (even? n) (if (= n 0) #t (odd? (- n 1)))) (define (odd? n) (if (= n 0) #f (even? (- n 1)))) (even? 10))");
+fn test_vm_mutual_recursion() {
+    assert_evals("(begin (define (even? n) (if (= n 0) #t (odd? (- n 1)))) (define (odd? n) (if (= n 0) #f (even? (- n 1)))) (even? 10))");
 }
 
 // === apply ===
-#[test]
-fn test_equiv_apply() {
-    assert_equiv("(apply + '(1 2 3))");
-    assert_equiv("(apply list '(1 2 3))");
-}
-
 // === Depth limit ===
 #[test]
 fn test_vm_compiler_depth_limit() {

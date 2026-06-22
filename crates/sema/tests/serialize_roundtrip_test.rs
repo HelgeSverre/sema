@@ -52,13 +52,13 @@ fn eval_roundtrip(input: &str) -> Value {
     })
 }
 
-/// Assert that the round-trip result matches the tree-walker result.
+/// Assert that the serialize→deserialize→execute result matches a direct eval.
 fn assert_roundtrip(input: &str) {
-    let tw_result = common::eval_tw(input);
+    let direct = common::eval(input);
     let rt_result = eval_roundtrip(input);
     assert_eq!(
-        rt_result, tw_result,
-        "roundtrip mismatch for `{input}`:\n  roundtrip: {rt_result:?}\n  tree-walk: {tw_result:?}"
+        rt_result, direct,
+        "roundtrip mismatch for `{input}`:\n  roundtrip: {rt_result:?}\n  direct:    {direct:?}"
     );
 }
 

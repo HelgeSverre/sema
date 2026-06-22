@@ -202,7 +202,49 @@ How each Sema span is labelled for each tool when its compat value is on:
 | `embeddings` | `EMBEDDING` | `task` | `embedding` | `generation` |
 | `execute_tool` | `TOOL` | `tool` | `tool` | `span` |
 | `invoke_agent` | `AGENT` | `agent` | `chain` | `span` |
+| `retrieve` (vector search) | `RETRIEVER` | `workflow` | `retriever` | `span` |
+| `rerank` | `RERANKER` | `workflow` | `chain` | `span` |
 | notebook cell / retry | `CHAIN` | `workflow` | `chain` | `span` |
+
+## Tags, metadata & streaming TTFT
+
+With a compat mode on, three more things are filled in automatically — all behind the
+same `SEMA_OTEL_COMPAT` switch, so a plain OTel backend stays lean.
+
+**Auto-tags.** Every LLM span is tagged with its `operation:…`, `provider:…`, and
+`model:…`, plus `cache-hit` on a cache-served response. These land on
+`langfuse.trace.tags`, `braintrust.tags`, and `langsmith.span.tags`.
+
+**Your own tags & metadata.** Pass `:tags` (a list) and `:metadata` (a map) to
+`llm/complete`, `llm/chat`, `llm/stream`, or `agent/run`. Your tags are merged with the
+auto-tags; metadata fans out to each backend's native field
+(`langfuse.trace.metadata.*`, `langsmith.metadata.*`, `traceloop.association.properties.*`,
+`braintrust.metadata`).
+
+```sema
+(llm/complete "Summarize this." {:max-tokens 100
+                                 :tags ["prod" "summarizer"]
+                                 :metadata {:env "prod" :feature "digest"}})
+```
+
+**Streaming time-to-first-token.** A streamed call records how long the first token took.
+It's always on the span as `sema.gen_ai.server.time_to_first_token` (seconds) +
+`sema.gen_ai.is_streaming`, and with compat on it also fills Langfuse's
+`completion_start_time` (which drives its TTFT column). Traceloop/OpenLLMetry gets the
+boolean `gen_ai.is_streaming` (OpenLLMetry has no per-span TTFT attribute — it tracks
+streaming latency as a histogram metric instead).
+
+Two more identity fields ride along when their backend is active: LangSmith's
+`langsmith.trace.session_id` (it ignores the standard `session.id`), and Langfuse's
+`langfuse.release` from `SEMA_OTEL_RELEASE`.
+
+**Per-direction cost split (OpenInference).** Alongside the combined `llm.cost.total`,
+chat spans also carry `llm.cost.prompt` and `llm.cost.completion`, so Phoenix/Arize show
+the prompt-vs-completion cost breakdown. Derived from Sema's in-SDK cost computation.
+
+**Embedding detail (OpenInference).** Embeddings spans carry `embedding.model_name`, and —
+when [content capture](#limitations) is enabled — the input texts at
+`embedding.embeddings.{i}.embedding.text` (capped per call). Raw vectors are never emitted.
 
 ## Tools you can't send traces to
 
@@ -251,8 +293,7 @@ its own integration guide instead. The main categories:
 - **Proxies and gateways can't receive traces.** Helicone, LiteLLM and Pezzo capture data
   by routing your model calls through them, not by accepting an OTLP push — use their own
   integration instead.
-- **Not yet implemented:** streaming time-to-first-token, and the per-message *indexed*
-  attribute form some older Traceloop/LangSmith parsers expect (Sema emits the structured
-  and entity forms today). An auto-tagging option is also planned.
+- **Not yet implemented:** the per-message *indexed* attribute form some older
+  Traceloop/LangSmith parsers expect (Sema emits the structured and entity forms today).
 - **More attributes per span.** Compat adds extra copies of each value. If you only use a
   plain OTel backend, leave `SEMA_OTEL_COMPAT` unset to keep spans lean.

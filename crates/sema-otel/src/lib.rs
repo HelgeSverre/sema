@@ -40,6 +40,10 @@ pub struct ResponseFacts {
     pub response_model: String,
     pub finish_reason: Option<String>,
     pub cost_usd: Option<f64>,
+    /// Per-direction cost split (USD) for backends that show it separately
+    /// (OpenInference `llm.cost.prompt` / `.completion`). `None` when pricing is unknown.
+    pub cost_prompt_usd: Option<f64>,
+    pub cost_completion_usd: Option<f64>,
     pub cache_hit: bool,
 }
 

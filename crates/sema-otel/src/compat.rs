@@ -124,6 +124,8 @@ pub(crate) enum Kind {
     Tool,
     Agent,
     Chain,
+    Retriever,
+    Reranker,
 }
 
 /// Per-backend span-kind alias attributes for `kind`.
@@ -140,6 +142,8 @@ pub(crate) fn span_kind(kind: Kind) -> Vec<KeyValue> {
             Kind::Tool => "TOOL",
             Kind::Agent => "AGENT",
             Kind::Chain => "CHAIN",
+            Kind::Retriever => "RETRIEVER",
+            Kind::Reranker => "RERANKER",
         };
         kvs.push(KeyValue::new("openinference.span.kind", v));
     }
@@ -148,7 +152,7 @@ pub(crate) fn span_kind(kind: Kind) -> Vec<KeyValue> {
             Kind::Llm | Kind::Embedding => "task",
             Kind::Tool => "tool",
             Kind::Agent => "agent",
-            Kind::Chain => "workflow",
+            Kind::Chain | Kind::Retriever | Kind::Reranker => "workflow",
         };
         kvs.push(KeyValue::new("traceloop.span.kind", v));
     }
@@ -158,6 +162,8 @@ pub(crate) fn span_kind(kind: Kind) -> Vec<KeyValue> {
             Kind::Embedding => "embedding",
             Kind::Tool => "tool",
             Kind::Agent | Kind::Chain => "chain",
+            Kind::Retriever => "retriever",
+            Kind::Reranker => "chain",
         };
         kvs.push(KeyValue::new("langsmith.span.kind", v));
     }
@@ -236,6 +242,8 @@ pub(crate) fn llm_usage(
     cache_read: u32,
     cache_creation: u32,
     cost: Option<f64>,
+    cost_prompt: Option<f64>,
+    cost_completion: Option<f64>,
 ) -> Vec<KeyValue> {
     let set = active();
     if set.is_empty() {
@@ -260,6 +268,13 @@ pub(crate) fn llm_usage(
         }
         if let Some(c) = cost {
             kvs.push(KeyValue::new("llm.cost.total", c));
+        }
+        // Per-direction split — Phoenix shows prompt/completion cost separately.
+        if let Some(c) = cost_prompt {
+            kvs.push(KeyValue::new("llm.cost.prompt", c));
+        }
+        if let Some(c) = cost_completion {
+            kvs.push(KeyValue::new("llm.cost.completion", c));
         }
     }
     if set.has(CompatSet::TRACELOOP) {
@@ -543,6 +558,186 @@ pub(crate) fn metadata(meta: &[(String, String)]) -> Vec<KeyValue> {
     kvs
 }
 
+// ---------------------------------------------------------------------------
+// Retriever + reranker spans (OpenInference RETRIEVER / RERANKER)
+// ---------------------------------------------------------------------------
+
+/// Cap on indexed document attributes per span, to bound a large candidate set.
+const MAX_DOCS: usize = 64;
+
+/// Reranker request metadata: `reranker.query` (content-gated), `reranker.model_name`,
+/// `reranker.top_k`. OpenInference-only.
+pub(crate) fn reranker_meta(
+    query: &str,
+    model: &str,
+    top_k: Option<usize>,
+    capture: bool,
+) -> Vec<KeyValue> {
+    let set = active();
+    if set.is_empty() || !set.has(CompatSet::OPENINFERENCE) {
+        return Vec::new();
+    }
+    let mut kvs = Vec::new();
+    if !model.is_empty() {
+        kvs.push(KeyValue::new("reranker.model_name", model.to_string()));
+    }
+    if let Some(k) = top_k {
+        kvs.push(KeyValue::new("reranker.top_k", k as i64));
+    }
+    if capture {
+        kvs.push(KeyValue::new("reranker.query", query.to_string()));
+    }
+    kvs
+}
+
+/// Reranker input/output documents flattened under `field`
+/// (`input_documents` / `output_documents`). Content is gated; scores always emit.
+pub(crate) fn reranker_documents(
+    field: &str,
+    docs: &[(String, Option<f64>)],
+    capture: bool,
+) -> Vec<KeyValue> {
+    let set = active();
+    if set.is_empty() || !set.has(CompatSet::OPENINFERENCE) {
+        return Vec::new();
+    }
+    let mut kvs = Vec::new();
+    for (i, (content, score)) in docs.iter().take(MAX_DOCS).enumerate() {
+        if capture {
+            kvs.push(KeyValue::new(
+                format!("reranker.{field}.{i}.document.content"),
+                content.clone(),
+            ));
+        }
+        if let Some(s) = score {
+            kvs.push(KeyValue::new(
+                format!("reranker.{field}.{i}.document.score"),
+                *s,
+            ));
+        }
+    }
+    kvs
+}
+
+/// Retrieval result documents: `retrieval.documents.{i}.document.{id,score}` always,
+/// `.content` gated. OpenInference-only.
+pub(crate) fn retrieval_documents(docs: &[(String, String, f64)], capture: bool) -> Vec<KeyValue> {
+    let set = active();
+    if set.is_empty() || !set.has(CompatSet::OPENINFERENCE) {
+        return Vec::new();
+    }
+    let mut kvs = Vec::new();
+    for (i, (id, content, score)) in docs.iter().take(MAX_DOCS).enumerate() {
+        kvs.push(KeyValue::new(
+            format!("retrieval.documents.{i}.document.id"),
+            id.clone(),
+        ));
+        kvs.push(KeyValue::new(
+            format!("retrieval.documents.{i}.document.score"),
+            *score,
+        ));
+        if capture {
+            kvs.push(KeyValue::new(
+                format!("retrieval.documents.{i}.document.content"),
+                content.clone(),
+            ));
+        }
+    }
+    kvs
+}
+
+// ---------------------------------------------------------------------------
+// Embedding detail (on the embeddings span)
+// ---------------------------------------------------------------------------
+
+/// Max number of indexed input-text attributes emitted for one embed call, to bound a
+/// large batch's attribute count. Raw vectors are never emitted (both backends gate them).
+const MAX_EMBED_TEXTS: usize = 128;
+
+/// OpenInference `embedding.model_name`. No-op unless OpenInference is active.
+pub(crate) fn embedding_model(model: &str) -> Vec<KeyValue> {
+    let set = active();
+    if set.is_empty() || model.is_empty() || !set.has(CompatSet::OPENINFERENCE) {
+        return Vec::new();
+    }
+    vec![KeyValue::new("embedding.model_name", model.to_string())]
+}
+
+/// OpenInference per-text `embedding.embeddings.{i}.embedding.text`. Content-gated by the
+/// caller (`capture`); capped at `MAX_EMBED_TEXTS`.
+pub(crate) fn embedding_texts(texts: &[String], capture: bool) -> Vec<KeyValue> {
+    let set = active();
+    if set.is_empty() || !capture || !set.has(CompatSet::OPENINFERENCE) {
+        return Vec::new();
+    }
+    texts
+        .iter()
+        .take(MAX_EMBED_TEXTS)
+        .enumerate()
+        .map(|(i, t)| {
+            KeyValue::new(
+                format!("embedding.embeddings.{i}.embedding.text"),
+                t.clone(),
+            )
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Streaming: time-to-first-token (on the LLM span)
+// ---------------------------------------------------------------------------
+
+/// `completion_start` is the absolute first-token timestamp (RFC3339). The TTFT *duration*
+/// itself is always emitted vendor-neutrally as `sema.gen_ai.server.time_to_first_token`
+/// by the caller; here we add only the backend-native keys.
+pub(crate) fn streaming(completion_start: &str) -> Vec<KeyValue> {
+    let set = active();
+    if set.is_empty() {
+        return Vec::new();
+    }
+    let mut kvs = Vec::new();
+    if set.has(CompatSet::LANGFUSE) {
+        // Langfuse computes its TTFT column from this absolute first-token time.
+        kvs.push(KeyValue::new(
+            "langfuse.observation.completion_start_time",
+            completion_start.to_string(),
+        ));
+    }
+    if set.has(CompatSet::TRACELOOP) {
+        // OpenLLMetry's real streaming span attribute is the boolean `gen_ai.is_streaming`
+        // (its streaming *duration* lives in a histogram metric, not a span attribute, so
+        // there is no per-span TTFT key to populate here).
+        kvs.push(KeyValue::new("gen_ai.is_streaming", true));
+    }
+    kvs
+}
+
+// ---------------------------------------------------------------------------
+// Trace identity: session + release (applied to every span in `start()`)
+// ---------------------------------------------------------------------------
+
+/// LangSmith reads its OWN session key (it ignores `session.id` /
+/// `gen_ai.conversation.id`); Langfuse maps `langfuse.release`. Both no-op unless their
+/// backend is active.
+pub(crate) fn identity(session: Option<&str>, release: Option<&str>) -> Vec<KeyValue> {
+    let set = active();
+    if set.is_empty() {
+        return Vec::new();
+    }
+    let mut kvs = Vec::new();
+    if set.has(CompatSet::LANGSMITH) {
+        if let Some(s) = session {
+            kvs.push(KeyValue::new("langsmith.trace.session_id", s.to_string()));
+        }
+    }
+    if set.has(CompatSet::LANGFUSE) {
+        if let Some(r) = release {
+            kvs.push(KeyValue::new("langfuse.release", r.to_string()));
+        }
+    }
+    kvs
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -568,5 +763,35 @@ mod tests {
         assert_eq!(openinference_provider("ollama"), "ollama");
         assert_eq!(openinference_system("gemini"), Some("vertexai"));
         assert_eq!(openinference_system("ollama"), None);
+    }
+
+    fn has(kvs: &[KeyValue], key: &str) -> bool {
+        kvs.iter().any(|kv| kv.key.as_str() == key)
+    }
+
+    #[test]
+    fn streaming_and_identity_gate_on_active_backend() {
+        set_test_override("langfuse");
+        let s = streaming("2026-06-22T00:00:00.000Z");
+        assert!(has(&s, "langfuse.observation.completion_start_time"));
+        assert!(!has(&s, "gen_ai.is_streaming"));
+        let id = identity(Some("sess-1"), Some("v1.0"));
+        assert!(has(&id, "langfuse.release"));
+        assert!(!has(&id, "langsmith.trace.session_id"));
+
+        set_test_override("traceloop,langsmith");
+        // OpenLLMetry's real streaming span attribute is the bool gen_ai.is_streaming.
+        assert!(has(&streaming("t"), "gen_ai.is_streaming"));
+        let id = identity(Some("sess-1"), None);
+        assert!(has(&id, "langsmith.trace.session_id"));
+        assert!(!has(&id, "langfuse.release")); // release None -> not emitted
+
+        // Nothing active -> empty.
+        set_test_override("");
+        assert!(streaming("t").is_empty());
+        assert!(identity(Some("s"), Some("r")).is_empty());
+
+        // Restore the "unset" sentinel so sibling tests read the env path.
+        TEST_OVERRIDE.store(0xFF, Ordering::Relaxed);
     }
 }

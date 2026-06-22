@@ -422,6 +422,40 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::nil())
     });
 
+    // Boolean membership — unlike `member` (which returns the Scheme tail-or-#f), this
+    // reads as a predicate and allocates nothing.
+    register_fn(env, "list/contains?", |args| {
+        check_arity!(args, "list/contains?", 2);
+        let items = get_sequence(&args[0], "list/contains?")?;
+        Ok(Value::bool(items.iter().any(|item| item == &args[1])))
+    });
+
+    // Safe indexed access: returns `default` instead of erroring when out of bounds.
+    register_fn(env, "list/nth-or", |args| {
+        check_arity!(args, "list/nth-or", 3);
+        let items = get_sequence(&args[0], "list/nth-or")?;
+        let idx = args[1].as_index("list/nth-or")?;
+        Ok(items.get(idx).cloned().unwrap_or_else(|| args[2].clone()))
+    });
+
+    // The last `n` elements (inverse of `take`). Clamps to the sequence length.
+    register_fn(env, "list/take-last", |args| {
+        check_arity!(args, "list/take-last", 2);
+        let n = args[0].as_index("list/take-last")?;
+        let items = get_sequence(&args[1], "list/take-last")?;
+        let start = items.len().saturating_sub(n);
+        Ok(Value::list(items[start..].to_vec()))
+    });
+
+    // All but the last `n` elements (drop from the tail). Clamps to empty.
+    register_fn(env, "list/drop-last", |args| {
+        check_arity!(args, "list/drop-last", 2);
+        let n = args[0].as_index("list/drop-last")?;
+        let items = get_sequence(&args[1], "list/drop-last")?;
+        let end = items.len().saturating_sub(n);
+        Ok(Value::list(items[..end].to_vec()))
+    });
+
     register_fn(env, "list/unique", |args| {
         check_arity!(args, "list/unique", 1);
         let items = get_sequence(&args[0], "list/unique")?;

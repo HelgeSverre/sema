@@ -19,7 +19,7 @@ use crate::pricing;
 use crate::provider::{LlmProvider, ProviderRegistry};
 use crate::types::{
     ChatMessage, ChatRequest, ChatResponse, ContentBlock, EmbedRequest, EmbedResponse, LlmError,
-    ToolCall, ToolSchema, Usage,
+    RerankRequest, ToolCall, ToolSchema, Usage,
 };
 use crate::vector_store::{VectorDocument, VectorStore};
 
@@ -192,6 +192,45 @@ where
                         .to_string(),
                 )
             })?;
+        f(provider)
+    })
+}
+
+/// Pull a human-readable text snippet from a vector-store document's metadata
+/// (`:text` or `:content`), for the retriever span's `document.content`. Empty if absent.
+fn metadata_text(metadata: &Value) -> String {
+    let Some(m) = metadata.as_map_rc() else {
+        return String::new();
+    };
+    for key in ["text", "content"] {
+        if let Some(s) = m.get(&Value::keyword(key)).and_then(|v| v.as_str()) {
+            return s.to_string();
+        }
+    }
+    String::new()
+}
+
+fn with_rerank_provider<F, R>(name: Option<&str>, f: F) -> Result<R, SemaError>
+where
+    F: FnOnce(&dyn LlmProvider) -> Result<R, SemaError>,
+{
+    PROVIDER_REGISTRY.with(|reg| {
+        let reg = reg.borrow();
+        let provider = match name {
+            Some(n) => reg
+                .get(n)
+                .ok_or_else(|| SemaError::Llm(format!("rerank provider '{n}' not found")))?,
+            None => reg
+                .rerank_provider()
+                .or_else(|| reg.default_provider())
+                .ok_or_else(|| {
+                    SemaError::Llm(
+                        "no rerank provider configured — set COHERE_API_KEY, JINA_API_KEY, or \
+                         VOYAGE_API_KEY (or pass {:provider ...})"
+                            .to_string(),
+                    )
+                })?,
+        };
         f(provider)
     })
 }
@@ -404,6 +443,47 @@ fn get_opt_u32(opts: &BTreeMap<Value, Value>, key: &str) -> Option<u32> {
     opts.get(&Value::keyword(key))
         .and_then(|v| v.as_int())
         .map(|n| n as u32)
+}
+
+/// Read an optional list-of-strings option for observability tags: `:tags ["a" "b"]`,
+/// or a lone string `:tags "a"`. Non-string elements are skipped.
+fn get_opt_string_list(opts: &BTreeMap<Value, Value>, key: &str) -> Vec<String> {
+    match opts.get(&Value::keyword(key)) {
+        Some(v) if v.as_seq().is_some() => v
+            .as_seq()
+            .unwrap()
+            .iter()
+            .filter_map(|x| x.as_str().map(|s| s.to_string()).or_else(|| x.as_keyword()))
+            .collect(),
+        Some(v) => v
+            .as_str()
+            .map(|s| vec![s.to_string()])
+            .or_else(|| v.as_keyword().map(|s| vec![s]))
+            .unwrap_or_default(),
+        None => Vec::new(),
+    }
+}
+
+/// Read an optional `string -> string` map option for observability metadata:
+/// `:metadata {:env "prod" :team "ml"}`. Keyword keys are de-coloned (`:env` -> `env`);
+/// values are stringified.
+fn get_opt_str_map(opts: &BTreeMap<Value, Value>, key: &str) -> Vec<(String, String)> {
+    let Some(m) = opts.get(&Value::keyword(key)).and_then(|v| v.as_map_rc()) else {
+        return Vec::new();
+    };
+    m.iter()
+        .map(|(k, val)| {
+            let ks = k
+                .as_keyword()
+                .or_else(|| k.as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| k.to_string());
+            let vs = val
+                .as_str()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| val.to_string());
+            (ks, vs)
+        })
+        .collect()
 }
 
 /// Substitute `{{key}}` placeholders in a template string using a vars map.
@@ -985,9 +1065,11 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                         "https://api.jina.ai/v1".to_string(),
                         model,
                     )
-                    .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    .map_err(|e| SemaError::Llm(e.to_string()))?
+                    .with_rerank(crate::embeddings::RerankDialect::Jina);
                     reg.register(Box::new(provider));
                     reg.set_embedding_provider("jina");
+                    reg.set_rerank_provider("jina");
                 }
                 "voyage" => {
                     let api_key = api_key
@@ -1001,9 +1083,11 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                         "https://api.voyageai.com/v1".to_string(),
                         model,
                     )
-                    .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    .map_err(|e| SemaError::Llm(e.to_string()))?
+                    .with_rerank(crate::embeddings::RerankDialect::Voyage);
                     reg.register(Box::new(provider));
                     reg.set_embedding_provider("voyage");
+                    reg.set_rerank_provider("voyage");
                 }
                 "cohere" => {
                     let api_key = api_key
@@ -1014,6 +1098,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                         .map_err(|e| SemaError::Llm(e.to_string()))?;
                     reg.register(Box::new(provider));
                     reg.set_embedding_provider("cohere");
+                    reg.set_rerank_provider("cohere");
                 }
                 other => {
                     // Treat unknown providers as OpenAI-compatible if base-url and api-key are provided
@@ -1285,9 +1370,11 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                         "https://api.jina.ai/v1".to_string(),
                         model,
                     )
-                    .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    .map_err(|e| SemaError::Llm(e.to_string()))?
+                    .with_rerank(crate::embeddings::RerankDialect::Jina);
                     reg.register(Box::new(provider));
                     reg.set_embedding_provider("jina");
+                    reg.set_rerank_provider("jina");
                 }
             }
             if let Ok(key) = std::env::var("VOYAGE_API_KEY") {
@@ -1299,11 +1386,15 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                         "https://api.voyageai.com/v1".to_string(),
                         model,
                     )
-                    .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    .map_err(|e| SemaError::Llm(e.to_string()))?
+                    .with_rerank(crate::embeddings::RerankDialect::Voyage);
                     reg.register(Box::new(provider));
                     // Only set as embedding provider if not already set
                     if reg.embedding_provider().is_none() {
                         reg.set_embedding_provider("voyage");
+                    }
+                    if reg.rerank_provider().is_none() {
+                        reg.set_rerank_provider("voyage");
                     }
                 }
             }
@@ -1319,6 +1410,9 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                     reg.register(Box::new(provider));
                     if reg.embedding_provider().is_none() {
                         reg.set_embedding_provider("cohere");
+                    }
+                    if reg.rerank_provider().is_none() {
+                        reg.set_rerank_provider("cohere");
                     }
                 }
             }
@@ -1410,6 +1504,8 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         // Honor a caller-supplied conversation/session/user identity (else do_complete
         // generates a fresh conversation id).
         let _conv = conv_scope.open();
+        // Per-call observability tags/metadata (read inside do_complete's span).
+        let _tele = install_call_telemetry(args.get(1).and_then(|v| v.as_map_rc()).as_ref());
 
         let messages = vec![ChatMessage::new("user", prompt_text)];
 
@@ -1470,6 +1566,11 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                     }
                 }
             }
+
+            // Per-call observability tags/metadata for both the no-tools (do_complete)
+            // and tool-loop (run_tool_loop) branches below. Bound here so the guard
+            // outlives the dispatch.
+            let _tele = install_call_telemetry(args.get(1).and_then(|v| v.as_map_rc()).as_ref());
 
             if tools.is_empty() || tool_mode == "none" {
                 // Simple chat without tools
@@ -1587,6 +1688,17 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             None,
         );
         span.set_output_type(false);
+        // Per-call observability tags/metadata (streaming bypasses do_complete).
+        if let Some(ref m) = opts_map {
+            let tags = get_opt_string_list(m, "tags");
+            if !tags.is_empty() {
+                span.set_tags(&tags);
+            }
+            let meta = get_opt_str_map(m, "metadata");
+            if !meta.is_empty() {
+                span.set_metadata(&meta);
+            }
+        }
 
         let response = with_provider(|p| {
             if request.model.is_empty() {
@@ -2220,6 +2332,10 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             Some(agent.system.clone())
         };
 
+        // Per-run observability tags/metadata: attached to the agent span (and inherited
+        // by the nested per-round chat spans) inside run_tool_loop.
+        let _tele = install_call_telemetry(opts.as_ref());
+
         let (result, final_messages) = run_tool_loop(
             ctx,
             messages,
@@ -2529,6 +2645,8 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         // CLIENT embeddings span (bypasses do_complete). Input tokens only.
         let span = sema_otel::llm_span("embeddings");
         let req_model = request.model.clone().unwrap_or_default();
+        // Advertise the input texts (content-gated; OpenInference embedding.* keys).
+        span.set_embedding_input(&request.texts);
         // Cassette interception (mirrors run_completion, for the embeddings seam).
         let cassette_key = compute_embed_key(&request);
         let decision =
@@ -2608,6 +2726,84 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                     .collect(),
             ))
         }
+    });
+
+    // (llm/rerank query documents {:top-k 5 :model "..." :provider :cohere})
+    // Cross-encoder reranking. Returns a list of {:index :score :document}, highest
+    // relevance first. `documents` is a list of strings.
+    register_fn(env, "llm/rerank", |args| {
+        if args.len() < 2 || args.len() > 3 {
+            return Err(SemaError::arity("llm/rerank", "2-3", args.len()));
+        }
+        let query = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string query", args[0].type_name()))?
+            .to_string();
+        let documents: Vec<String> = args[1]
+            .as_seq()
+            .ok_or_else(|| SemaError::type_error("list of strings", args[1].type_name()))?
+            .iter()
+            .map(|d| {
+                d.as_str()
+                    .map(|s| s.to_string())
+                    .ok_or_else(|| SemaError::type_error("string document", d.type_name()))
+            })
+            .collect::<Result<_, _>>()?;
+        if documents.is_empty() {
+            return Ok(Value::list(vec![]));
+        }
+
+        let mut top_k = None;
+        let mut model = None;
+        let mut provider = None;
+        if let Some(opts) = args.get(2).and_then(|v| v.as_map_rc()) {
+            top_k = get_opt_u32(&opts, "top-k").map(|n| n as usize);
+            model = get_opt_string(&opts, "model");
+            provider = opts
+                .get(&Value::keyword("provider"))
+                .and_then(|p| p.as_keyword().or_else(|| p.as_str().map(|s| s.to_string())));
+        }
+
+        // OpenInference RERANKER span (no-op unless telemetry + compat are on).
+        let span = sema_otel::reranker_span(&query, model.as_deref().unwrap_or(""), top_k);
+        span.set_input(&documents);
+
+        let request = RerankRequest {
+            query,
+            documents: documents.clone(),
+            top_k,
+            model,
+        };
+        let resp = with_rerank_provider(provider.as_deref(), |p| {
+            p.rerank(request).map_err(|e| {
+                span.record_error(llm_error_kind(&e), &e.to_string());
+                SemaError::Llm(e.to_string())
+            })
+        })?;
+
+        // Record reordered output (content + scores) on the span.
+        let out_docs: Vec<(String, f64)> = resp
+            .results
+            .iter()
+            .filter_map(|r| documents.get(r.index).map(|d| (d.clone(), r.score)))
+            .collect();
+        span.set_output(&out_docs);
+
+        let out: Vec<Value> = resp
+            .results
+            .iter()
+            .map(|r| {
+                let mut m = BTreeMap::new();
+                m.insert(Value::keyword("index"), Value::int(r.index as i64));
+                m.insert(Value::keyword("score"), Value::float(r.score));
+                m.insert(
+                    Value::keyword("document"),
+                    Value::string(documents.get(r.index).map(|s| s.as_str()).unwrap_or("")),
+                );
+                Value::map(m)
+            })
+            .collect();
+        Ok(Value::list(out))
     });
 
     // (llm/similarity vec1 vec2) — cosine similarity
@@ -3733,18 +3929,23 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             .as_int()
             .ok_or_else(|| SemaError::type_error("integer", args[2].type_name()))?
             as usize;
+        // OpenInference RETRIEVER span (no-op unless telemetry + compat are on).
+        let span = sema_otel::retriever_span(query.len() / 8, k);
         VECTOR_STORES.with(|s| {
             let s = s.borrow();
             let store = s
                 .get(name)
                 .ok_or_else(|| SemaError::eval(format!("vector store '{}' not found", name)))?;
-            Ok(Value::list(
-                store
-                    .search(query, k)?
-                    .iter()
-                    .map(|r| r.to_value())
-                    .collect(),
-            ))
+            let results = store.search(query, k).inspect_err(|e| {
+                span.record_error("retrieval_error", &e.to_string());
+            })?;
+            // (id, content, score) for the span — content pulled from metadata :text/:content.
+            let docs: Vec<(String, String, f64)> = results
+                .iter()
+                .map(|r| (r.id.clone(), metadata_text(&r.metadata), r.score))
+                .collect();
+            span.set_documents(&docs);
+            Ok(Value::list(results.iter().map(|r| r.to_value()).collect()))
         })
     });
 
@@ -4086,6 +4287,8 @@ fn complete_with_prompt(prompt: &Prompt, opts: Option<&Value>) -> Result<Value, 
     request.max_tokens = max_tokens.or(Some(4096));
     request.temperature = temperature;
 
+    // Per-call observability tags/metadata (read inside do_complete's span).
+    let _tele = install_call_telemetry(opts.and_then(|v| v.as_map_rc()).as_ref());
     let response = do_complete(request)?;
     track_usage(&response.usage)?;
     Ok(Value::string(&response.content))
@@ -4334,6 +4537,7 @@ fn is_cache_valid(cached: &CachedResponse) -> bool {
 /// Build the OTel `ResponseFacts` snapshot from a served response. Cost is priced as
 /// served by `provider` (matches `track_usage`).
 fn response_facts(provider: &str, resp: &ChatResponse) -> sema_otel::ResponseFacts {
+    let split = pricing::calculate_cost_split_for(provider, &resp.usage);
     sema_otel::ResponseFacts {
         input_tokens: resp.usage.prompt_tokens,
         output_tokens: resp.usage.completion_tokens,
@@ -4342,6 +4546,8 @@ fn response_facts(provider: &str, resp: &ChatResponse) -> sema_otel::ResponseFac
         response_model: resp.model.clone(),
         finish_reason: resp.stop_reason.clone(),
         cost_usd: pricing::calculate_cost_for(provider, &resp.usage),
+        cost_prompt_usd: split.map(|(p, _)| p),
+        cost_completion_usd: split.map(|(_, c)| c),
         cache_hit: resp.stop_reason.as_deref() == Some("cache_hit"),
     }
 }
@@ -4441,6 +4647,78 @@ fn llm_error_kind(e: &crate::types::LlmError) -> &'static str {
     }
 }
 
+thread_local! {
+    /// Per-call user observability tags, set by an LLM builtin from its options map and
+    /// read where the span is constructed (deeper in `do_complete` / `run_tool_loop`).
+    static CALL_TAGS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    /// Per-call user observability metadata (string -> string), same lifecycle as tags.
+    static CALL_META: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// RAII install of per-call user tags/metadata. Saves and restores the previous values
+/// on drop so a nested LLM call (e.g. `llm/complete` inside an agent tool) can't wipe an
+/// outer call's telemetry.
+struct CallTelemetry {
+    prev_tags: Vec<String>,
+    prev_meta: Vec<(String, String)>,
+}
+
+impl Drop for CallTelemetry {
+    fn drop(&mut self) {
+        CALL_TAGS.with(|t| *t.borrow_mut() = std::mem::take(&mut self.prev_tags));
+        CALL_META.with(|m| *m.borrow_mut() = std::mem::take(&mut self.prev_meta));
+    }
+}
+
+/// Install per-call tags/metadata parsed from a call's options map. Returns `None` (no
+/// guard, parent telemetry inherited) when neither `:tags` nor `:metadata` is present.
+fn install_call_telemetry(opts: Option<&Rc<BTreeMap<Value, Value>>>) -> Option<CallTelemetry> {
+    let opts = opts?;
+    let tags = get_opt_string_list(opts, "tags");
+    let meta = get_opt_str_map(opts, "metadata");
+    if tags.is_empty() && meta.is_empty() {
+        return None;
+    }
+    let prev_tags = CALL_TAGS.with(|t| std::mem::replace(&mut *t.borrow_mut(), tags));
+    let prev_meta = CALL_META.with(|m| std::mem::replace(&mut *m.borrow_mut(), meta));
+    Some(CallTelemetry {
+        prev_tags,
+        prev_meta,
+    })
+}
+
+/// Attach the active per-call tags/metadata to an LLM span.
+fn apply_call_telemetry_llm(span: &sema_otel::LlmSpan) {
+    CALL_TAGS.with(|t| {
+        let t = t.borrow();
+        if !t.is_empty() {
+            span.set_tags(&t);
+        }
+    });
+    CALL_META.with(|m| {
+        let m = m.borrow();
+        if !m.is_empty() {
+            span.set_metadata(&m);
+        }
+    });
+}
+
+/// Attach the active per-call tags/metadata to an agent span.
+fn apply_call_telemetry_agent(span: &sema_otel::AgentSpan) {
+    CALL_TAGS.with(|t| {
+        let t = t.borrow();
+        if !t.is_empty() {
+            span.set_tags(&t);
+        }
+    });
+    CALL_META.with(|m| {
+        let m = m.borrow();
+        if !m.is_empty() {
+            span.set_metadata(&m);
+        }
+    });
+}
+
 fn do_complete(request: ChatRequest) -> Result<ChatResponse, SemaError> {
     // Standalone completions get their own conversation id so every chat span carries
     // gen_ai.conversation.id; agent-nested completions inherit the agent's scope.
@@ -4478,6 +4756,8 @@ fn do_complete(request: ChatRequest) -> Result<ChatResponse, SemaError> {
             .collect();
         span.set_tools(&views);
     }
+    // User :tags / :metadata for this call (auto-tags are derived inside the span).
+    apply_call_telemetry_llm(&span);
     // Reset the serving-provider stamp so a cache hit (which serves no provider) doesn't
     // inherit a stale name from a prior completion.
     LAST_SERVING_PROVIDER.with(|p| *p.borrow_mut() = None);
@@ -4595,7 +4875,17 @@ fn stream_with_cassette(
     let stream_real = |req: ChatRequest,
                        cb: &mut dyn FnMut(&str) -> Result<(), crate::types::LlmError>|
      -> Result<ChatResponse, SemaError> {
-        p.stream_complete(req, cb).map_err(|e| {
+        // Stamp the streaming time-to-first-token on the first chunk delivered by the
+        // real provider (mark_first_token is itself idempotent).
+        let mut seen_first = false;
+        let mut timed = |chunk: &str| -> Result<(), crate::types::LlmError> {
+            if !seen_first {
+                span.mark_first_token();
+                seen_first = true;
+            }
+            cb(chunk)
+        };
+        p.stream_complete(req, &mut timed).map_err(|e| {
             span.record_error(llm_error_kind(&e), &e.to_string());
             SemaError::Llm(e.to_string())
         })
@@ -5058,6 +5348,8 @@ fn run_tool_loop(
     // INTERNAL agent span over the whole loop; the per-round `chat` spans (from
     // do_complete) and per-tool spans nest under it via the thread-local stack.
     let _agent_span = sema_otel::agent_span(agent_name);
+    // User :tags / :metadata for this run, attached to the agent root span.
+    apply_call_telemetry_agent(&_agent_span);
     let mut messages = initial_messages;
     // First user input for the trace-level I/O rollup (compat: Langfuse trace panel).
     let first_input = messages

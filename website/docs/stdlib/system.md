@@ -228,11 +228,12 @@ If no signals are pending, this is essentially free — it just checks three ato
 
 ### `shell`
 
-Run a shell command and return its stdout as a string.
+Run a shell command. Returns a map with `:stdout`, `:stderr`, and `:exit-code`. A single-string command runs through the system shell (`sh -c` / `cmd /C`); passing extra arguments runs the command directly, without shell parsing. Requires the `PROCESS` capability.
 
 ```sema
-(shell "ls -la")       ; => "total 42\n..."
-(shell "echo hello")   ; => "hello\n"
+(shell "echo hello")          ; => {:stdout "hello\n" :stderr "" :exit-code 0}
+(:stdout (shell "ls -la"))    ; => "total 42\n..."
+(:exit-code (shell "false"))  ; => 1
 ```
 
 ### `exit`

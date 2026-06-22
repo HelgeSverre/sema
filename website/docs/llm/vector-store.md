@@ -156,6 +156,10 @@ A RAG-style workflow: embed documents, store them, search semantically, and pers
 
 Next time you run, `(vector-store/open "docs" "my-docs.json")` will load the saved embeddings instantly — no re-embedding needed.
 
+::: tip Sharpen results with a reranker
+Cosine `vector-store/search` has high recall but coarse ordering. For better precision, retrieve a larger shortlist and reorder it with the cross-encoder [`llm/rerank`](/docs/llm/embeddings#reranking) — the standard *retrieve-many → rerank-to-a-few* RAG move. See the **[RAG guide](/docs/llm/rag)** for the full pipeline.
+:::
+
 ::: warning Use one embedding model per store
 Every document and the query must share the same embedding dimensions. Mixing embedding
 models (or providers) in one store raises a *dimension-mismatch* error at search time — so

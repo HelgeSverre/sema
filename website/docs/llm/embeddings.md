@@ -97,6 +97,21 @@ Compute cosine similarity between two embedding vectors. Returns a value between
 (llm/similarity '(0.1 0.2 0.3) '(0.4 0.5 0.6))
 ```
 
+## Reranking
+
+### `llm/rerank`
+
+Reorder a list of candidate documents by their relevance to a query using a hosted **cross-encoder** reranker (Cohere, Jina, or Voyage — the same **API key** you already use for embeddings, e.g. `COHERE_API_KEY` / `JINA_API_KEY` / `VOYAGE_API_KEY`; see [Supported Embedding Providers](#supported-embedding-providers) below for setup). Where `llm/similarity` / `vector-store/search` embed the query and documents *independently* (a bi-encoder), a reranker reads the query and each document *together*, so it's far more precise. The standard pattern is to retrieve a generous shortlist by vector search, then rerank it to the best few.
+
+```sema
+(llm/rerank "how do I read a file?"
+            (list "vectors are cool" "use file/read to read a file" "unrelated trivia")
+            {:top-k 2})
+;; => ({:index 1 :score 0.91 :document "use file/read to read a file"} ...)
+```
+
+Returns `{:index :score :document}` maps, highest relevance first; `:index` points back into the input list. Options: `:top-k`, `:model`, and `:provider` (`:cohere` / `:jina` / `:voyage`). See the **[RAG guide](/docs/llm/rag)** for the full retrieve → rerank → answer pipeline.
+
 ## Token Counting
 
 ### `llm/token-count`

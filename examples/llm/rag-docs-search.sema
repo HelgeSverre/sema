@@ -1,0 +1,78 @@
+;; ─────────────────────────────────────────────────────────────────────────────
+;; RAG over Sema's own docs: embed → vector search → rerank → answer
+;; ─────────────────────────────────────────────────────────────────────────────
+;;
+;; A complete, non-contrived Retrieval-Augmented Generation pipeline. It indexes
+;; Sema's entire builtin-documentation corpus into a vector store, then answers
+;; "which function do I use?" questions grounded in the retrieved docs. It exercises
+;; four primitives end to end:
+;;
+;;   llm/embed         — turn text into vectors (a bi-encoder: query & doc embedded apart)
+;;   vector-store/*    — cosine nearest-neighbour search over those vectors
+;;   llm/rerank        — cross-encoder reordering of the candidates (reads query+doc together)
+;;   llm/complete      — ground an answer in the top reranked docs
+;;
+;; The classic RAG recipe is "retrieve many, rerank to a few": cosine search has high
+;; recall but coarse ordering; the reranker sharpens precision on the shortlist.
+;;
+;; Run it (needs an embedding+rerank key — Jina/Voyage/Cohere — and a chat key):
+;;   sema examples/llm/rag-docs-search.sema
+;; First run embeds the whole corpus and caches it to /tmp; later runs are instant.
+
+(define corpus-glob "crates/sema-docs/entries/stdlib/**/*.md")
+(define cache-path "/tmp/sema-docs.vec")
+(define clip-chars 900)
+(define batch-size 64)
+
+;; Read + embed every doc, add it to the store, and persist the store to the cache.
+(define (build-index!)
+  (let* ((files (file/glob corpus-glob))
+         (docs (map (lambda (path)
+                      {:name (path/stem path) :path path
+                       :text (string/take (file/read path) clip-chars)})
+                    files))
+         ;; Embed in batches (list/chunk), one network call each, flattened to one list.
+         (vectors (flat-map (lambda (batch) (llm/embed batch))
+                            (list/chunk batch-size (map (lambda (d) (:text d)) docs)))))
+    (println f"Indexing ${(length files)} docs (first run; caching to ${cache-path}) ...")
+    ;; map walks docs + vectors in lockstep (Scheme-style multi-list map).
+    (map (lambda (doc vec) (vector-store/add "docs" (:name doc) vec doc))
+         docs vectors)
+    (vector-store/save "docs")))
+
+;; ── 1. Index the corpus (cached) ────────────────────────────────────────────
+;; vector-store/open loads the cache if present, else starts empty.
+(vector-store/open "docs" cache-path)
+(when (= (vector-store/count "docs") 0) (build-index!))
+
+(define indexed (vector-store/count "docs"))
+(println f"Corpus ready: ${indexed} vectors.")
+
+;; ── 2. Ask a question ───────────────────────────────────────────────────────
+(define question "How do I read a file from disk and split it into lines?")
+(println f"\nQ: ${question}")
+
+;; Retrieve: embed the query, cosine top-12 (high recall, coarse order).
+(define query-vec (llm/embed question))
+(define candidates (vector-store/search "docs" query-vec 12))
+
+;; Rerank: cross-encoder reorders to the 4 most relevant (precision).
+(define candidate-texts (map (lambda (c) (:text (:metadata c))) candidates))
+(define reranked (llm/rerank question candidate-texts {:top-k 4}))
+
+(println "\nTop matches after reranking (cross-encoder relevance):")
+(for-each (lambda (r)
+            (let ((name  (:id (nth candidates (:index r))))
+                  (score (math/round-to (:score r) 3)))
+              (println f"  ${score}  ${name}")))
+          reranked)
+
+;; ── 3. Answer, grounded in the reranked docs ────────────────────────────────
+(define context
+  (string/join (map (lambda (r) (nth candidate-texts (:index r))) reranked)
+               "\n\n---\n\n"))
+(define prompt
+  f"Using ONLY the Sema documentation below, answer the question and name the exact functions to call.\n\nDOCS:\n${context}\n\nQUESTION: ${question}")
+
+(println "\n── Answer ─────────────────────────────────────────────")
+(println (llm/complete prompt {:max-tokens 400}))

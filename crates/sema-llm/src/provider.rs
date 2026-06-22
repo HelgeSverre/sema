@@ -1,4 +1,6 @@
-use crate::types::{ChatRequest, ChatResponse, EmbedRequest, EmbedResponse, LlmError};
+use crate::types::{
+    ChatRequest, ChatResponse, EmbedRequest, EmbedResponse, LlmError, RerankRequest, RerankResponse,
+};
 
 /// The core LLM provider trait. Sync interface — async internals are hidden.
 pub trait LlmProvider: Send + Sync {
@@ -29,6 +31,14 @@ pub trait LlmProvider: Send + Sync {
             self.name()
         )))
     }
+
+    /// Cross-encoder reranking of `documents` against a `query`.
+    fn rerank(&self, _request: RerankRequest) -> Result<RerankResponse, LlmError> {
+        Err(LlmError::Config(format!(
+            "{} does not support reranking",
+            self.name()
+        )))
+    }
 }
 
 /// Registry of providers by name, plus a separate embedding provider slot.
@@ -36,6 +46,7 @@ pub struct ProviderRegistry {
     providers: std::collections::HashMap<String, Box<dyn LlmProvider>>,
     default: Option<String>,
     embedding_provider: Option<String>,
+    rerank_provider: Option<String>,
 }
 
 impl ProviderRegistry {
@@ -44,6 +55,7 @@ impl ProviderRegistry {
             providers: std::collections::HashMap::new(),
             default: None,
             embedding_provider: None,
+            rerank_provider: None,
         }
     }
 
@@ -78,6 +90,18 @@ impl ProviderRegistry {
 
     pub fn embedding_provider(&self) -> Option<&dyn LlmProvider> {
         self.embedding_provider
+            .as_ref()
+            .and_then(|name| self.providers.get(name))
+            .map(|p| p.as_ref())
+    }
+
+    pub fn set_rerank_provider(&mut self, name: &str) {
+        self.rerank_provider = Some(name.to_string());
+    }
+
+    /// The default rerank provider (last rerank-capable provider registered).
+    pub fn rerank_provider(&self) -> Option<&dyn LlmProvider> {
+        self.rerank_provider
             .as_ref()
             .and_then(|name| self.providers.get(name))
             .map(|p| p.as_ref())

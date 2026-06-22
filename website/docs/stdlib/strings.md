@@ -15,6 +15,15 @@ Split a string by a delimiter.
 (string/split "hello world" " ")  ; => ("hello" "world")
 ```
 
+### `string/lines`
+
+Split into lines on `\n` or `\r\n` (Clojure `split-lines` semantics). A trailing newline does not produce a final empty line — handy for processing logs, config, or file contents. Use `string/split` when you need a literal separator instead.
+
+```sema
+(string/lines "a\nb\r\nc\n")   ; => ("a" "b" "c")
+(string/lines "single")        ; => ("single")
+```
+
 ### `string/join`
 
 Join a list of strings with a separator.

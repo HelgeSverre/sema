@@ -3,7 +3,7 @@ mod common;
 use sema_core::Value;
 
 // ============================================================
-// Path operations (pure string manipulation) — dual eval
+// Path operations (pure string manipulation)
 // ============================================================
 
 eval_tests! {
@@ -29,7 +29,7 @@ eval_tests! {
 }
 
 // ============================================================
-// System operations — dual eval
+// System operations
 // ============================================================
 
 eval_tests! {
@@ -57,7 +57,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Time operations (deterministic subset) — dual eval
+// Time operations (deterministic subset)
 // ============================================================
 
 eval_tests! {
@@ -71,7 +71,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Env operations — dual eval
+// Env operations
 // ============================================================
 
 eval_tests! {
@@ -80,7 +80,7 @@ eval_tests! {
 }
 
 // ============================================================
-// File operations (self-contained with cleanup) — dual eval
+// File operations (self-contained with cleanup)
 // ============================================================
 
 eval_tests! {
@@ -101,7 +101,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Shell command — dual eval (Unix-only: `echo` is a shell builtin on Windows)
+// Shell command (Unix-only: `echo` is a shell builtin on Windows)
 // ============================================================
 
 #[cfg(unix)]
@@ -110,7 +110,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Math extended — dual eval
+// Math extended
 // ============================================================
 
 eval_tests! {
@@ -122,7 +122,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Misc stdlib — dual eval
+// Misc stdlib
 // ============================================================
 
 eval_tests! {
@@ -133,7 +133,7 @@ eval_tests! {
 }
 
 // ============================================================
-// String case & manipulation functions — dual eval
+// String case & manipulation functions
 // ============================================================
 
 eval_tests! {
@@ -160,7 +160,7 @@ eval_tests! {
 }
 
 // ============================================================
-// New interactive-CLI functions — dual eval
+// New interactive-CLI functions
 // ============================================================
 
 eval_tests! {

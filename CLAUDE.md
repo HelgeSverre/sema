@@ -104,11 +104,12 @@ Stdlib higher-order functions (map, filter, foldl, sort-by) call through `sema_c
 ## Testing
 
 The bytecode VM is the **sole evaluator** (the tree-walker has been retired). All
-tests run on the VM. The `eval_tests!` / `eval_error_tests!` macros
-still exist (they currently emit `_tw` and `_vm` variants, both of which now run
-on the VM via the same entry points) and stay useful for pinning a literal
-expected value as the correctness oracle — the literal anchor matters more now
-that there's no second backend to differentially compare against.
+tests run on the VM. The `eval_tests!` / `eval_error_tests!` macros now emit **one
+test per case** (no more `_tw`/`_vm` duplication — both paths were identical once the
+tree-walker went away) and stay useful for pinning a literal expected value as the
+correctness oracle. The `common::eval_tw`/`eval_vm` helpers are now equivalent and
+both kept only because many tests call them directly to turn an expected Sema literal
+into a `Value` (`=> common::eval_tw("'(2 4 6)")`).
 
 - **Eval test file**: `crates/sema/tests/eval_test.rs` — use `eval_tests!` and `eval_error_tests!` macros (literal `=> expected` value is the oracle)
 - **Async tests**: `crates/sema/tests/vm_async_test.rs` — async/channel tests

@@ -1,5 +1,64 @@
 # Changelog
 
+## 1.24.0
+
+### Added
+
+- **Stdlib ergonomics — routine text/list/number helpers.** Added seven builtins that
+  everyday code kept hand-rolling: `math/round-to` (round to N decimals) and
+  `math/format-fixed` (fixed-decimal display string); `string/lines` (split on line
+  endings, Clojure `split-lines` semantics); `list/contains?` (boolean membership, vs
+  `member`'s Scheme tail), `list/nth-or` (safe indexed access with a default), and
+  `list/take-last` / `list/drop-last` (tail counterparts to `take`/`drop`). The RAG
+  example now leans entirely on stdlib (`list/chunk`, `flat-map`, `string/take`,
+  `math/round-to`) instead of local helpers.
+
+### Changed
+
+- **Eval test macros emit one test per case.** With the tree-walker retired, `eval_str`
+  and `eval_str_compiled` are the same path, so `eval_tests!` / `eval_error_tests!` no
+  longer generate redundant `_tw` + `_vm` pairs — halving the eval test count with no
+  loss of coverage.
+
+- **Reranking + a full RAG pipeline.** New `llm/rerank` cross-encoder reranking over
+  Cohere / Jina / Voyage (the same key already used for embeddings) — `(llm/rerank query
+  documents {:top-k 5 :model "..." :provider :cohere})` returns `{:index :score :document}`
+  maps, highest relevance first. This completes the retrieve-many → rerank-to-a-few RAG
+  recipe with `llm/embed` + `vector-store/*` + `llm/complete`. The vector-store search and
+  rerank steps emit OpenInference `RETRIEVER` / `RERANKER` spans (`retrieval.documents.*`,
+  `reranker.*`) so a full RAG trace renders natively in Phoenix/Arize. New worked example
+  `examples/llm/rag-docs-search.sema` (indexes Sema's own docs; `make rag-demo`), a
+  [RAG guide](https://sema-lang.com/docs/llm/rag), and a FakeProvider regression test.
+
+- **OpenTelemetry tags, metadata & streaming time-to-first-token (compat layer).** With a
+  `SEMA_OTEL_COMPAT` mode on, every LLM span is now auto-tagged with
+  `operation:`/`provider:`/`model:` (+ `cache-hit`), and you can pass `:tags` (a list) and
+  `:metadata` (a map) to `llm/complete`, `llm/chat`, `llm/stream`, and `agent/run` — tags
+  merge with the auto-tags, metadata fans out to each backend's native field
+  (`langfuse.trace.metadata.*`, `langsmith.metadata.*`, `traceloop.association.properties.*`,
+  `braintrust.metadata`). Streamed calls record **time-to-first-token**
+  (`sema.gen_ai.server.time_to_first_token` always-on; Langfuse `completion_start_time` +
+  Traceloop `gen_ai.is_streaming` under compat) — a signal almost no other emitter
+  reports. LangSmith now also gets its own `langsmith.trace.session_id`, and
+  Langfuse a `langfuse.release` from `SEMA_OTEL_RELEASE`. Verified end-to-end against a live
+  OTel Collector (HTTP + gRPC) and Jaeger with real provider calls; regression test in
+  `crates/sema/tests/otel_tags_test.rs`.
+- **OpenTelemetry per-direction cost split & embedding detail (OpenInference compat).** LLM
+  spans now also carry `llm.cost.prompt` / `llm.cost.completion` next to `llm.cost.total`
+  (so Phoenix/Arize show the prompt-vs-completion cost breakdown), and embeddings spans
+  carry `embedding.model_name` plus (content-gated, capped) `embedding.embeddings.{i}.embedding.text`.
+
+### Documentation
+
+- **Website docs audit + reference coverage.** Documented the nine new builtins
+  (`math/round-to`, `math/format-fixed`, `string/lines`, `list/contains?`, `list/nth-or`,
+  `list/take-last`, `list/drop-last`, `io/read-line`, `io/eof?`) on their stdlib pages,
+  added the OTel cost-split/embedding-detail attributes to the compat doc, and gave the
+  RAG/rerank guide a depth pass (score semantics, top-k, cost/scaling, error handling,
+  observability). Fixed copy-paste examples that didn't run: `shell` returns a map
+  (`:stdout`/`:stderr`/`:exit-code`), the web-server demo's streaming/summarize/extract
+  handlers (`llm/stream`, `llm/complete`, and `llm/extract`'s schema-first argument order).
+
 ## 1.23.0
 
 ### Added

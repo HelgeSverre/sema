@@ -2656,6 +2656,16 @@
       "body": "Split a list into chunks of a given size.\n\n```sema\n(list/chunk 2 '(1 2 3 4 5))   ; => ((1 2) (3 4) (5))\n(list/chunk 3 '(1 2 3 4 5 6)) ; => ((1 2 3) (4 5 6))\n```"
     },
     {
+      "name": "list/contains?",
+      "module": "lists",
+      "section": "Access & Search",
+      "summary": "Return `#t` if the sequence contains `elem` (structural equality), else `#f`. Unlike `member` (which returns the Scheme-style tail or `#f`), this reads as a predicate and allocates nothing.",
+      "examples": [
+        "(list/contains? (list 1 2 3) 2)   ; => #t\n(list/contains? (list 1 2 3) 9)   ; => #f"
+      ],
+      "body": "Return `#t` if the sequence contains `elem` (structural equality), else `#f`. Unlike `member` (which returns the Scheme-style tail or `#f`), this reads as a predicate and allocates nothing.\n\n```sema\n(list/contains? (list 1 2 3) 2)   ; => #t\n(list/contains? (list 1 2 3) 9)   ; => #f\n```"
+    },
+    {
       "name": "list/cross-join",
       "module": "lists",
       "section": "Windowing",
@@ -2684,6 +2694,16 @@
         "(list/diff '(1 2 3 4 5) '(3 4))   ; => (1 2 5)"
       ],
       "body": "Return elements in the first list that are not in the second list.\n\n```sema\n(list/diff '(1 2 3 4 5) '(3 4))   ; => (1 2 5)\n```"
+    },
+    {
+      "name": "list/drop-last",
+      "module": "lists",
+      "section": "Slicing",
+      "summary": "Return all but the last `n` elements (drops from the tail; the counterpart to `drop`). Clamps to empty.",
+      "examples": [
+        "(list/drop-last 2 (list 1 2 3 4))   ; => (1 2)\n(list/drop-last 9 (list 1 2))       ; => ()"
+      ],
+      "body": "Return all but the last `n` elements (drops from the tail; the counterpart to `drop`). Clamps to empty.\n\n```sema\n(list/drop-last 2 (list 1 2 3 4))   ; => (1 2)\n(list/drop-last 9 (list 1 2))       ; => ()\n```"
     },
     {
       "name": "list/drop-while",
@@ -2816,6 +2836,16 @@
       "body": "Return the most frequent value. If tied, returns a list.\n\n```sema\n(list/mode '(1 2 2 3 3 3))   ; => 3\n(list/mode '(1 1 2 2))       ; => (1 2)\n```"
     },
     {
+      "name": "list/nth-or",
+      "module": "lists",
+      "section": "Access & Search",
+      "summary": "Return the element at `index`, or `default` when the index is out of bounds — the safe counterpart to `nth` (which errors).",
+      "examples": [
+        "(list/nth-or (list 10 20 30) 1 :none)   ; => 20\n(list/nth-or (list 10 20 30) 9 :none)   ; => :none"
+      ],
+      "body": "Return the element at `index`, or `default` when the index is out of bounds — the safe counterpart to `nth` (which errors).\n\n```sema\n(list/nth-or (list 10 20 30) 1 :none)   ; => 20\n(list/nth-or (list 10 20 30) 9 :none)   ; => :none\n```"
+    },
+    {
       "name": "list/pad",
       "module": "lists",
       "section": "Padding & Joining",
@@ -2924,6 +2954,16 @@
         "(list/sum '(1 2 3 4 5))   ; => 15"
       ],
       "body": "Sum all numbers in a list.\n\n```sema\n(list/sum '(1 2 3 4 5))   ; => 15\n```"
+    },
+    {
+      "name": "list/take-last",
+      "module": "lists",
+      "section": "Slicing",
+      "summary": "Return the last `n` elements (the tail counterpart to `take`). Clamps to the sequence length, so asking for more than exists returns the whole sequence.",
+      "examples": [
+        "(list/take-last 2 (list 1 2 3 4))   ; => (3 4)\n(list/take-last 9 (list 1 2))       ; => (1 2)"
+      ],
+      "body": "Return the last `n` elements (the tail counterpart to `take`). Clamps to the sequence length, so asking for more than exists returns the whole sequence.\n\n```sema\n(list/take-last 2 (list 1 2 3 4))   ; => (3 4)\n(list/take-last 9 (list 1 2))       ; => (1 2)\n```"
     },
     {
       "name": "list/take-while",
@@ -3578,6 +3618,30 @@
         "(llm/providers)   ; => (:anthropic :ollama)"
       ],
       "body": "Return a list of keywords naming all currently configured providers. Equivalent to `llm/list-providers`.\n\n```sema\n(llm/providers)   ; => (:anthropic :ollama)\n```"
+    },
+    {
+      "name": "llm/rerank",
+      "module": "llm",
+      "summary": "Reorder `documents` (a list of strings) by their cross-encoder relevance to `query`, using a hosted reranking provider (Cohere, Jina, or Voyage — the same **API key** you use for embeddings, e.g. `COHERE_API_KEY` / `JINA_API_KEY` / `VOYAGE_API_KEY`). Unlike cosine similarity over embeddings, a reranker reads the query and each document *together*, so it is far more precise — the standard RAG move is to retrieve many candidates by vector search, then rerank to the best few.",
+      "params": [
+        {
+          "name": "query",
+          "type": "string"
+        },
+        {
+          "name": "documents",
+          "type": "list"
+        },
+        {
+          "name": "opts",
+          "type": "map"
+        }
+      ],
+      "returns": "list",
+      "examples": [
+        "(llm/rerank \"how do I read a file?\"\n            (list \"vectors are cool\" \"use file/read to read a file\" \"unrelated trivia\")\n            {:top-k 2})\n;; => ({:index 1 :score 0.91 :document \"use file/read to read a file\"} ...)"
+      ],
+      "body": "Reorder `documents` (a list of strings) by their cross-encoder relevance to `query`, using a hosted reranking provider (Cohere, Jina, or Voyage — the same **API key** you use for embeddings, e.g. `COHERE_API_KEY` / `JINA_API_KEY` / `VOYAGE_API_KEY`). Unlike cosine similarity over embeddings, a reranker reads the query and each document *together*, so it is far more precise — the standard RAG move is to retrieve many candidates by vector search, then rerank to the best few.\n\nReturns a list of maps `{:index :score :document}`, highest relevance first. `:index` is the position in the original `documents` list, `:score` the relevance (higher is better; scores are query-dependent, use them for ordering, not as calibrated probabilities).\n\nThe opts map accepts `:top-k` (keep only the K best), `:model` (override the provider's default reranker), and `:provider` (`:cohere` / `:jina` / `:voyage` — defaults to the configured rerank provider).\n\n```sema\n(llm/rerank \"how do I read a file?\"\n            (list \"vectors are cool\" \"use file/read to read a file\" \"unrelated trivia\")\n            {:top-k 2})\n;; => ({:index 1 :score 0.91 :document \"use file/read to read a file\"} ...)\n```\n\nSee the [RAG guide](/docs/llm/rag) for an end-to-end retrieve → rerank → answer pipeline."
     },
     {
       "name": "llm/reset-usage",
@@ -4702,6 +4766,16 @@
       "body": "Euler's number raised to a power (e^x).\n\n```sema\n(math/exp 1)       ; => 2.71828...\n(math/exp 0)       ; => 1.0\n```"
     },
     {
+      "name": "math/format-fixed",
+      "module": "math",
+      "section": "Rounding",
+      "summary": "Format a number as a fixed-decimal **string**, padding trailing zeros to `places` digits — for money/metrics display where `math/round-to` (which returns a float and drops trailing zeros) isn't enough.",
+      "examples": [
+        "(math/format-fixed 1.2 3)     ; => \"1.200\"\n(math/format-fixed 3.14159 2) ; => \"3.14\""
+      ],
+      "body": "Format a number as a fixed-decimal **string**, padding trailing zeros to `places` digits — for money/metrics display where `math/round-to` (which returns a float and drops trailing zeros) isn't enough.\n\n```sema\n(math/format-fixed 1.2 3)     ; => \"1.200\"\n(math/format-fixed 3.14159 2) ; => \"3.14\"\n```"
+    },
+    {
       "name": "math/gcd",
       "module": "math",
       "section": "Integer Math",
@@ -4870,6 +4944,16 @@
         "(math/remainder 10 3) ; => 1\n(math/remainder 7 2)  ; => 1"
       ],
       "body": "Remainder after truncated division.\n\n```sema\n(math/remainder 10 3) ; => 1\n(math/remainder 7 2)  ; => 1\n```"
+    },
+    {
+      "name": "math/round-to",
+      "module": "math",
+      "section": "Rounding",
+      "summary": "Round a number to `places` decimal places, returning a float. (The core `round` only rounds to a whole integer.)",
+      "examples": [
+        "(math/round-to 3.14159 2)   ; => 3.14\n(math/round-to 0.46666 3)   ; => 0.467"
+      ],
+      "body": "Round a number to `places` decimal places, returning a float. (The core `round` only rounds to a whole integer.)\n\n```sema\n(math/round-to 3.14159 2)   ; => 3.14\n(math/round-to 0.46666 3)   ; => 0.467\n```"
     },
     {
       "name": "math/sign",
@@ -7942,6 +8026,16 @@
         "(string/length \"hello\")   ; => 5\n(string/length \"\")        ; => 0\n(string/length \"héllo\")   ; => 5\n(string/length \"日本語\")   ; => 3"
       ],
       "body": "Return the number of characters in a string.\n\n```sema\n(string/length \"hello\")   ; => 5\n(string/length \"\")        ; => 0\n(string/length \"héllo\")   ; => 5\n(string/length \"日本語\")   ; => 3\n```"
+    },
+    {
+      "name": "string/lines",
+      "module": "strings",
+      "section": "Core String Operations",
+      "summary": "Split a string into lines on `\\n` or `\\r\\n` (Clojure `split-lines` semantics). A trailing newline does not produce a final empty line. Use `string/split` when you need to split on a literal separator.",
+      "examples": [
+        "(string/lines \"a\\nb\\r\\nc\\n\")   ; => (\"a\" \"b\" \"c\")\n(string/lines \"single\")         ; => (\"single\")"
+      ],
+      "body": "Split a string into lines on `\\n` or `\\r\\n` (Clojure `split-lines` semantics). A trailing newline does not produce a final empty line. Use `string/split` when you need to split on a literal separator.\n\n```sema\n(string/lines \"a\\nb\\r\\nc\\n\")   ; => (\"a\" \"b\" \"c\")\n(string/lines \"single\")         ; => (\"single\")\n```"
     },
     {
       "name": "string/lower",

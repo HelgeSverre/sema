@@ -112,6 +112,16 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::list(parts))
     });
 
+    // Split into lines on `\n` / `\r\n` (Clojure split-lines semantics); no trailing
+    // empty line from a final newline. Use `string/split` when you need a literal sep.
+    register_fn(env, "string/lines", |args| {
+        check_arity!(args, "string/lines", 1);
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        Ok(Value::list(s.lines().map(Value::string).collect()))
+    });
+
     register_fn(env, "string/trim", |args| {
         check_arity!(args, "string/trim", 1);
         let s = args[0]

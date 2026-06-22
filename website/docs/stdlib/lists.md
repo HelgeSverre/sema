@@ -263,6 +263,24 @@ Drop the first N elements.
 (drop 2 '(1 2 3 4 5))   ; => (3 4 5)
 ```
 
+### `list/take-last`
+
+Take the last N elements (the tail counterpart to `take`). Clamps to the list length.
+
+```sema
+(list/take-last 2 '(1 2 3 4))   ; => (3 4)
+(list/take-last 9 '(1 2))       ; => (1 2)
+```
+
+### `list/drop-last`
+
+Drop the last N elements (drops from the tail; the counterpart to `drop`). Clamps to empty.
+
+```sema
+(list/drop-last 2 '(1 2 3 4))   ; => (1 2)
+(list/drop-last 9 '(1 2))       ; => ()
+```
+
 ### `flatten`
 
 Flatten nested lists into a single list.
@@ -304,6 +322,24 @@ Return the tail of the list starting from the first matching element.
 ```sema
 (member 3 '(1 2 3 4))   ; => (3 4)
 (member 9 '(1 2 3))     ; => #f
+```
+
+### `list/contains?`
+
+Return `#t` if the list contains the element, else `#f`. Unlike `member` (which returns the Scheme-style tail or `#f`), this reads as a predicate.
+
+```sema
+(list/contains? '(1 2 3) 2)   ; => #t
+(list/contains? '(1 2 3) 9)   ; => #f
+```
+
+### `list/nth-or`
+
+Indexed access with a fallback: returns the element at `index`, or `default` when out of bounds (the safe counterpart to `nth`, which errors).
+
+```sema
+(list/nth-or '(10 20 30) 1 :none)   ; => 20
+(list/nth-or '(10 20 30) 9 :none)   ; => :none
 ```
 
 ### `any`

@@ -625,6 +625,10 @@ fn start(name: String, kind: SpanKind, attrs: Vec<KeyValue>) -> Option<SpanCore>
     if let Some(id) = USER_ID.with(|c| c.borrow().clone()) {
         core.set_str("user.id", id); // Langfuse user attribution
     }
+    // Per-backend trace identity (LangSmith session id, Langfuse release). No-op unless
+    // the relevant compat backend is active.
+    let session = SESSION_ID.with(|c| c.borrow().clone());
+    core.set_attrs(compat::identity(session.as_deref(), release()));
     Some(core)
 }
 
@@ -659,6 +663,36 @@ fn scrub(s: &str) -> String {
     format!("{}…[truncated]", &s[..end])
 }
 
+/// Format a `SystemTime` as RFC3339 UTC (`YYYY-MM-DDTHH:MM:SS.mmmZ`), dependency-free.
+/// Used for the streaming first-token timestamp (Langfuse `completion_start_time`).
+fn rfc3339(t: std::time::SystemTime) -> String {
+    let dur = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+    let secs = dur.as_secs() as i64;
+    let millis = dur.subsec_millis();
+    let days = secs.div_euclid(86_400);
+    let tod = secs.rem_euclid(86_400);
+    let (hh, mm, ss) = (tod / 3_600, (tod % 3_600) / 60, tod % 60);
+    // Days since 1970-01-01 → civil (Y/M/D) via Howard Hinnant's algorithm.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097; // [0, 146096]
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{y:04}-{m:02}-{d:02}T{hh:02}:{mm:02}:{ss:02}.{millis:03}Z")
+}
+
+/// Optional release/version stamp (Langfuse `langfuse.release`), read once from the env.
+fn release() -> Option<&'static str> {
+    static REL: OnceLock<Option<String>> = OnceLock::new();
+    REL.get_or_init(|| std::env::var("SEMA_OTEL_RELEASE").ok())
+        .as_deref()
+}
+
 // ---------------------------------------------------------------------------
 // LLM span
 // ---------------------------------------------------------------------------
@@ -670,6 +704,10 @@ pub struct LlmSpan {
     /// Mapped `gen_ai.provider.name` + request model, captured in `set_dispatch` for
     /// the metric dimensions (recorded in `set_response`).
     dims: RefCell<(String, String)>,
+    /// User-supplied tags, merged with auto-derived ones and emitted in `set_response`.
+    user_tags: RefCell<Vec<String>>,
+    /// Guards `mark_first_token` so streaming TTFT is recorded exactly once.
+    first_token: std::cell::Cell<bool>,
 }
 
 /// Start an LLM-call span (CLIENT). Provider/model are unknown at entry and set later
@@ -693,6 +731,8 @@ pub fn llm_span(op: &'static str) -> LlmSpan {
         op,
         start: std::time::Instant::now(),
         dims: RefCell::new((String::new(), String::new())),
+        user_tags: RefCell::new(Vec::new()),
+        first_token: std::cell::Cell::new(false),
     }
 }
 
@@ -741,6 +781,15 @@ impl LlmSpan {
         }
     }
 
+    /// Advertise the input texts of an embeddings call (compat: OpenInference
+    /// `embedding.embeddings.{i}.embedding.text`). Content-gated; raw vectors are never
+    /// emitted.
+    pub fn set_embedding_input(&self, texts: &[String]) {
+        if let Some(c) = &self.inner {
+            c.set_attrs(compat::embedding_texts(texts, capture_content()));
+        }
+    }
+
     /// Trace-level I/O rollup on a STANDALONE chat span (compat: Langfuse trace panel).
     /// Content-gated.
     pub fn set_trace_io(&self, input: &str, output: &str) {
@@ -752,11 +801,54 @@ impl LlmSpan {
         }
     }
 
-    /// Tags (auto + user) — compat: Langfuse/LangSmith/Braintrust.
+    /// Stash user tags. Auto-derived tags (provider/model/operation/cache-hit) are
+    /// merged with these and emitted together in `set_response` (compat:
+    /// Langfuse/LangSmith/Braintrust).
     pub fn set_tags(&self, tags: &[String]) {
+        self.user_tags.borrow_mut().extend_from_slice(tags);
+    }
+
+    /// User metadata, fanned out per backend prefix (compat: Langfuse/LangSmith/
+    /// Traceloop/Braintrust). Emitted immediately — it has no auto-derived component.
+    pub fn set_metadata(&self, meta: &[(String, String)]) {
         if let Some(c) = &self.inner {
-            c.set_attrs(compat::tags(tags));
+            c.set_attrs(compat::metadata(meta));
         }
+    }
+
+    /// Record streaming time-to-first-token (first call wins; later calls no-op). Emits
+    /// the always-on vendor-neutral `sema.gen_ai.*` markers plus the backend-native keys
+    /// (Langfuse `completion_start_time`, OpenLLMetry `gen_ai.is_streaming`).
+    pub fn mark_first_token(&self) {
+        if self.first_token.replace(true) {
+            return;
+        }
+        let ttft = self.start.elapsed().as_secs_f64();
+        if let Some(c) = &self.inner {
+            c.set_bool("sema.gen_ai.is_streaming", true);
+            c.set_f64("sema.gen_ai.server.time_to_first_token", ttft);
+            c.set_attrs(compat::streaming(&rfc3339(std::time::SystemTime::now())));
+        }
+    }
+
+    /// Merge auto-derived tags (provider/model/operation/cache-hit) with any user tags
+    /// and emit them. Auto-tags need provider+model (from `set_dispatch`) and cache-hit
+    /// (known at response), so this runs from `set_response`.
+    fn emit_tags(&self, cache_hit: bool) {
+        let Some(c) = &self.inner else { return };
+        let (provider, model) = self.dims.borrow().clone();
+        let mut tags = vec![format!("operation:{}", self.op)];
+        if !provider.is_empty() {
+            tags.push(format!("provider:{provider}"));
+        }
+        if !model.is_empty() {
+            tags.push(format!("model:{model}"));
+        }
+        if cache_hit {
+            tags.push("cache-hit".to_string());
+        }
+        tags.extend(self.user_tags.borrow().iter().cloned());
+        c.set_attrs(compat::tags(&tags));
     }
 
     /// Called AFTER the provider is resolved. Sets provider + request model and
@@ -856,8 +948,17 @@ impl LlmSpan {
                 facts.cache_read_input_tokens,
                 facts.cache_creation_input_tokens,
                 facts.cost_usd,
+                facts.cost_prompt_usd,
+                facts.cost_completion_usd,
             ));
+            // Name the embedding model on the embeddings span (OpenInference).
+            if self.op == "embeddings" {
+                c.set_attrs(compat::embedding_model(&facts.response_model));
+            }
         }
+        // Auto-tags (provider/model/operation/cache-hit) + any user tags, emitted once
+        // now that dispatch + response facts are both known.
+        self.emit_tags(facts.cache_hit);
         // A cache hit made no provider call (zero usage, no serving provider) — recording
         // the histograms would emit a misleading zero-token sample with an empty provider
         // dimension. Skip metrics; the span (with sema.gen_ai.cache.hit) still records it.
@@ -1012,6 +1113,94 @@ impl AgentSpan {
 }
 
 // ---------------------------------------------------------------------------
+// Retriever + reranker spans (RAG; OpenInference RETRIEVER / RERANKER)
+// ---------------------------------------------------------------------------
+
+pub struct RetrieverSpan {
+    inner: Option<SpanCore>,
+}
+
+/// Start an INTERNAL retrieval span (vector-store search returning documents).
+pub fn retriever_span(query_dims: usize, k: usize) -> RetrieverSpan {
+    let inner = start(
+        "retrieve".to_string(),
+        SpanKind::Internal,
+        vec![
+            KeyValue::new("sema.retrieval.query_dims", query_dims as i64),
+            KeyValue::new("sema.retrieval.top_k", k as i64),
+        ],
+    );
+    if let Some(c) = &inner {
+        c.set_attrs(compat::span_kind(compat::Kind::Retriever));
+    }
+    RetrieverSpan { inner }
+}
+
+impl RetrieverSpan {
+    /// `docs` is `(id, content, score)` per result. Content is content-gated.
+    pub fn set_documents(&self, docs: &[(String, String, f64)]) {
+        if let Some(c) = &self.inner {
+            c.set_attrs(compat::retrieval_documents(docs, capture_content()));
+        }
+    }
+    pub fn record_error(&self, kind: &str, msg: &str) {
+        if let Some(c) = &self.inner {
+            c.record_error(kind, msg);
+        }
+    }
+}
+
+pub struct RerankerSpan {
+    inner: Option<SpanCore>,
+}
+
+/// Start an INTERNAL reranker span (cross-encoder reordering of candidate documents).
+pub fn reranker_span(query: &str, model: &str, top_k: Option<usize>) -> RerankerSpan {
+    let inner = start("rerank".to_string(), SpanKind::Internal, Vec::new());
+    if let Some(c) = &inner {
+        c.set_attrs(compat::span_kind(compat::Kind::Reranker));
+        c.set_attrs(compat::reranker_meta(
+            query,
+            model,
+            top_k,
+            capture_content(),
+        ));
+    }
+    RerankerSpan { inner }
+}
+
+impl RerankerSpan {
+    /// Candidate documents fed to the reranker (content-gated).
+    pub fn set_input(&self, docs: &[String]) {
+        if let Some(c) = &self.inner {
+            let docs: Vec<(String, Option<f64>)> = docs.iter().map(|d| (d.clone(), None)).collect();
+            c.set_attrs(compat::reranker_documents(
+                "input_documents",
+                &docs,
+                capture_content(),
+            ));
+        }
+    }
+    /// Reordered output documents with relevance scores (content-gated; scores always).
+    pub fn set_output(&self, docs: &[(String, f64)]) {
+        if let Some(c) = &self.inner {
+            let docs: Vec<(String, Option<f64>)> =
+                docs.iter().map(|(d, s)| (d.clone(), Some(*s))).collect();
+            c.set_attrs(compat::reranker_documents(
+                "output_documents",
+                &docs,
+                capture_content(),
+            ));
+        }
+    }
+    pub fn record_error(&self, kind: &str, msg: &str) {
+        if let Some(c) = &self.inner {
+            c.record_error(kind, msg);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Retry sub-span (per HTTP retry attempt, nested under the LLM span — Decision #10)
 // ---------------------------------------------------------------------------
 
@@ -1118,5 +1307,20 @@ mod tests {
         let out = scrub(&big);
         assert!(out.len() < big.len());
         assert!(out.ends_with("…[truncated]"));
+    }
+
+    #[test]
+    fn rfc3339_matches_known_epochs() {
+        let at = |secs: u64| rfc3339(std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs));
+        assert_eq!(at(0), "1970-01-01T00:00:00.000Z");
+        assert_eq!(at(1_735_689_600), "2025-01-01T00:00:00.000Z");
+        // Leap day + end-of-day boundary.
+        assert_eq!(at(1_709_164_800), "2024-02-29T00:00:00.000Z");
+        assert_eq!(at(1_709_251_199), "2024-02-29T23:59:59.000Z");
+        // Sub-second millis are preserved.
+        assert_eq!(
+            rfc3339(std::time::UNIX_EPOCH + std::time::Duration::from_millis(1_500)),
+            "1970-01-01T00:00:01.500Z"
+        );
     }
 }

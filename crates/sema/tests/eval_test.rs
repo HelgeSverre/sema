@@ -4,7 +4,7 @@ mod common;
 use sema_core::Value;
 
 // ============================================================
-// Destructuring — dual eval (tree-walker + VM)
+// Destructuring
 // ============================================================
 
 eval_tests! {
@@ -38,9 +38,9 @@ eval_tests! {
 
     destructure_let_vector: "(let (([a b] '(1 2))) (+ a b))" => Value::int(3),
     destructure_let_vector_from_vec: "(let (([a b] [10 20])) (+ a b))" => Value::int(30),
-    // Hand-constructed Value to avoid eval_tw oracle circularity (see docs/bugs/eval-tw-oracle-circularity.md)
+    // Hand-constructed Value to avoid eval-oracle circularity (the oracle would run the same evaluator under test)
     destructure_let_rest: "(let (([a & rest] '(1 2 3))) rest)" => Value::list(vec![Value::int(2), Value::int(3)]),
-    // Hand-constructed Value to avoid eval_tw oracle circularity
+    // Hand-constructed Value to avoid eval-oracle circularity
     destructure_let_rest_empty: "(let (([a b & rest] '(1 2))) rest)" => Value::list(vec![]),
     destructure_let_wildcard: "(let (([_ b] '(1 2))) b)" => Value::int(2),
     destructure_let_nested: "(let (([[a b] c] '((1 2) 3))) (+ a b c))" => Value::int(6),
@@ -63,7 +63,7 @@ eval_error_tests! {
 }
 
 // ============================================================
-// Pattern Matching — dual eval (tree-walker + VM)
+// Pattern Matching
 // ============================================================
 
 eval_tests! {
@@ -74,7 +74,7 @@ eval_tests! {
     match_wildcard: r#"(match 99 (1 "one") (2 "two") (_ "other"))"# => Value::string("other"),
     match_symbol_binding: "(match 42 (x (+ x 8)))" => Value::int(50),
     match_vector_pattern: "(match '(1 2 3) ([a b c] (+ a b c)))" => Value::int(6),
-    // Hand-constructed Value to avoid eval_tw oracle circularity
+    // Hand-constructed Value to avoid eval-oracle circularity
     match_vector_rest: "(match '(1 2 3 4) ([a & rest] rest))" => Value::list(vec![Value::int(2), Value::int(3), Value::int(4)]),
     match_map_keys: "(match {:x 10 :y 20} ({:keys [x y]} (+ x y)))" => Value::int(30),
     match_guard: r#"(match 5 (x when (> x 10) "big") (x when (> x 0) "small") (_ "zero"))"# => Value::string("small"),
@@ -139,7 +139,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Pattern Matching Edge Cases — dual eval (tree-walker + VM)
+// Pattern Matching Edge Cases
 // ============================================================
 
 eval_tests! {
@@ -190,7 +190,7 @@ eval_tests! {
     match_quoted_symbol_mismatch: r#"(match 'world ('hello :yes) (_ :no))"# => Value::keyword("no"),
 
     // Map with nested rest sequence
-    // Hand-constructed Value to avoid eval_tw oracle circularity
+    // Hand-constructed Value to avoid eval-oracle circularity
     match_map_nested_rest: r#"
         (match {:xs '(1 2 3)}
           ({:xs [a & rest]} rest)
@@ -228,7 +228,7 @@ eval_tests! {
     "# => Value::keyword("yes"),
 
     // :keys binds nil for missing keys and still matches
-    // Hand-constructed Value to avoid eval_tw oracle circularity
+    // Hand-constructed Value to avoid eval-oracle circularity
     match_keys_missing_binds_nil: r#"
         (match {:x 1}
           ({:keys [x y]} (list x y))
@@ -265,7 +265,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Regex Literals — dual eval (tree-walker + VM)
+// Regex Literals
 // ============================================================
 
 eval_tests! {
@@ -275,7 +275,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Debug helpers — dual eval (tree-walker + VM)
+// Debug helpers
 // ============================================================
 
 eval_tests! {
@@ -302,7 +302,7 @@ eval_error_tests! {
 }
 
 // ============================================================
-// Multimethods — dual eval (tree-walker + VM)
+// Multimethods
 // ============================================================
 
 eval_tests! {
@@ -388,7 +388,7 @@ eval_tests! {
 }
 
 // ============================================================
-// String interning — dual eval (tree-walker + VM)
+// String interning
 // ============================================================
 
 eval_tests! {
@@ -408,7 +408,7 @@ eval_error_tests! {
 }
 
 // ============================================================
-// TOML — dual eval (tree-walker + VM)
+// TOML
 // ============================================================
 
 eval_tests! {
@@ -551,7 +551,7 @@ mod redirect_hints {
 }
 
 // ============================================================
-// Dialect Aliases — dual eval (tree-walker + VM)
+// Dialect Aliases
 // ============================================================
 
 eval_tests! {
@@ -565,7 +565,7 @@ eval_tests! {
     alias_string_trim: r#"(string-trim "  hello  ")"# => Value::string("hello"),
     alias_hash_map_q: "(hash-map? (hash-map :a 1))" => Value::bool(true),
     alias_hash_ref: "(hash-ref {:a 1 :b 2} :b)" => Value::int(2),
-    alias_type_of: "(type-of 42)" => common::eval_tw("(type 42)"),
+    alias_type_of: "(type-of 42)" => common::eval("(type 42)"),
     alias_def_simple: "(def x 42) x" => Value::int(42),
     alias_def_function: "(def (add a b) (+ a b)) (add 3 4)" => Value::int(7),
     alias_defn: "(defn add (a b) (+ a b)) (add 3 4)" => Value::int(7),
@@ -642,7 +642,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Prelude hygiene — dual eval
+// Prelude hygiene
 // ============================================================
 
 eval_tests! {
@@ -655,7 +655,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Auto-gensym edge cases — dual eval
+// Auto-gensym edge cases
 // ============================================================
 
 eval_tests! {
@@ -773,7 +773,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Destructuring Edge Cases — dual eval (tree-walker + VM)
+// Destructuring Edge Cases
 // ============================================================
 
 eval_tests! {
@@ -784,11 +784,11 @@ eval_tests! {
     destructure_triple_nesting: "(let (([{:a [x]}] (list {:a [42]}))) x)" => Value::int(42),
 
     // Rest pattern: [& rest] binds entire sequence
-    // Hand-constructed Value to avoid eval_tw oracle circularity
+    // Hand-constructed Value to avoid eval-oracle circularity
     destructure_rest_binds_all: "(let (([& rest] '(1 2 3))) rest)" => Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]),
 
     // Nested destructure of rest: [a & [b c]]
-    // Hand-constructed Value to avoid eval_tw oracle circularity
+    // Hand-constructed Value to avoid eval-oracle circularity
     destructure_nested_rest: "(let (([a & [b c]] '(1 2 3))) (list a b c))" => Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]),
 
     // Explicit key-pattern pair in map destructuring
@@ -801,14 +801,14 @@ eval_tests! {
     destructure_empty_map: "(let (({} {:x 1})) 42)" => Value::int(42),
 
     // Missing keys produce nil
-    // Hand-constructed Value to avoid eval_tw oracle circularity
+    // Hand-constructed Value to avoid eval-oracle circularity
     destructure_map_missing_keys: "(let (({:keys [x y z]} {:x 1})) (list x y z))" => Value::list(vec![Value::int(1), Value::nil(), Value::nil()]),
 
     // Map destructuring from hashmap
     destructure_hashmap: "(let (({:keys [x]} (hashmap/new :x 99))) x)" => Value::int(99),
 
     // fn params with rest in vector destructuring
-    // Hand-constructed Value to avoid eval_tw oracle circularity
+    // Hand-constructed Value to avoid eval-oracle circularity
     destructure_fn_rest: "((fn ([a & rest]) rest) '(1 2 3))" => Value::list(vec![Value::int(2), Value::int(3)]),
 
     // fn params with map inside vector destructuring
@@ -818,7 +818,7 @@ eval_tests! {
     destructure_define_nested: "(begin (define [{:keys [a]} b] (list {:a 10} 20)) (+ a b))" => Value::int(30),
 
     // Match with deeply nested pattern (map containing vector with rest)
-    // Hand-constructed Value to avoid eval_tw oracle circularity
+    // Hand-constructed Value to avoid eval-oracle circularity
     match_deep_nested_rest: "(match {:items [1 2 3]} ({:items [a & rest]} rest) (_ nil))" => Value::list(vec![Value::int(2), Value::int(3)]),
 
     // Match vector exact mismatch falls through to correct clause
@@ -826,7 +826,7 @@ eval_tests! {
 }
 
 // ============================================================
-// Module/function aliases — dual eval (tree-walker + VM)
+// Module/function aliases
 // ============================================================
 
 eval_tests! {
@@ -1103,7 +1103,7 @@ eval_error_tests! {
 }
 
 // ============================================================
-// Typed Arrays — dual eval (tree-walker + VM)
+// Typed Arrays
 // ============================================================
 
 eval_tests! {
@@ -1214,7 +1214,7 @@ eval_error_tests! {
 }
 
 // ============================================================
-// procedure? / fn? — dual eval (tree-walker + VM)
+// procedure? / fn?
 // ============================================================
 
 eval_tests! {
@@ -1231,7 +1231,7 @@ eval_tests! {
 }
 
 // ============================================================
-// reverse and filter — dual eval (tree-walker + VM)
+// reverse and filter
 // ============================================================
 
 eval_tests! {
@@ -1291,23 +1291,13 @@ eval_tests! {
 }
 
 /// `time/now-ms` is non-deterministic, so we can't use the eval_tests! macro.
-/// Just confirm both backends bind the alias and it returns an int.
+/// Just confirm the alias binds and returns a positive int.
 #[test]
-fn alias_time_now_ms_tw() {
-    let v = common::eval_tw("(time/now-ms)");
+fn alias_time_now_ms() {
+    let v = common::eval("(time/now-ms)");
     assert!(
         v.as_int().is_some(),
-        "time/now-ms (tw) should return int, got {v:?}"
-    );
-    assert!(v.as_int().unwrap() > 0);
-}
-
-#[test]
-fn alias_time_now_ms_vm() {
-    let v = common::eval_vm("(time/now-ms)");
-    assert!(
-        v.as_int().is_some(),
-        "time/now-ms (vm) should return int, got {v:?}"
+        "time/now-ms should return int, got {v:?}"
     );
     assert!(v.as_int().unwrap() > 0);
 }
@@ -1333,11 +1323,10 @@ fn alias_time_now_ms_vm() {
 #[test]
 fn vm_set_through_map_hof_propagates() {
     let src = "(let ((c 0)) (map (fn (x) (set! c (+ c x))) (list 1 2 3)) c)";
-    assert_eq!(common::eval_tw(src), Value::int(6), "TW oracle");
     assert_eq!(
-        common::eval_vm(src),
+        common::eval(src),
         Value::int(6),
-        "VM after in-VM HOF routing fix (C1)"
+        "set! through a map HOF callback must propagate (C1)"
     );
 }
 
@@ -1345,11 +1334,10 @@ fn vm_set_through_map_hof_propagates() {
 #[test]
 fn vm_set_through_for_each_hof_propagates() {
     let src = "(let ((c 0)) (for-each (fn (x) (set! c (+ c x))) (list 1 2 3)) c)";
-    assert_eq!(common::eval_tw(src), Value::int(6), "TW oracle");
     assert_eq!(
-        common::eval_vm(src),
+        common::eval(src),
         Value::int(6),
-        "VM after in-VM HOF routing fix (C1)"
+        "set! through a for-each HOF callback must propagate (C1)"
     );
 }
 
@@ -1361,13 +1349,11 @@ fn vm_set_through_for_each_hof_propagates() {
 #[ignore = "C1 related: VM type reflection — see docs/limitations.md #31"]
 fn vm_type_of_lambda_is_lambda() {
     let src = "(type (fn (x) x))";
-    let tw_result = common::eval_tw(src);
-    let vm_result = common::eval_vm(src);
     assert_eq!(
-        vm_result, tw_result,
-        "backends should agree on (type (fn ...))"
+        common::eval(src),
+        Value::keyword("lambda"),
+        "(type (fn ...)) should be :lambda"
     );
-    assert_eq!(vm_result, Value::keyword("lambda"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1549,4 +1535,26 @@ eval_error_tests! {
     string_ref_negative: r#"(string-ref "abc" -1)"# => "must be non-negative",
     string_ref_non_string: "(string-ref 42 0)" => "expected string",
     string_ref_non_int: r#"(string-ref "abc" "x")"# => "expected int",
+}
+
+// ============================================================
+// stdlib additions: list/contains?, list/nth-or, list/take-last,
+// list/drop-last, math/round-to, math/format-fixed, string/lines
+// ============================================================
+
+eval_tests! {
+    list_contains_true: "(list/contains? (list 1 2 3) 2)" => Value::bool(true),
+    list_contains_false: "(list/contains? (list 1 2 3) 9)" => Value::bool(false),
+    list_nth_or_hit: "(list/nth-or (list 10 20 30) 1 -1)" => Value::int(20),
+    list_nth_or_miss: "(list/nth-or (list 10 20 30) 9 -1)" => Value::int(-1),
+    list_take_last_len: "(length (list/take-last 2 (list 1 2 3 4)))" => Value::int(2),
+    list_take_last_first: "(first (list/take-last 2 (list 1 2 3 4)))" => Value::int(3),
+    list_take_last_clamp: "(length (list/take-last 9 (list 1 2)))" => Value::int(2),
+    list_drop_last_last: "(last (list/drop-last 2 (list 1 2 3 4)))" => Value::int(2),
+    list_drop_last_clamp: "(length (list/drop-last 9 (list 1 2)))" => Value::int(0),
+    math_round_to: "(math/round-to 3.14159 2)" => Value::float(3.14),
+    math_round_to_zero: "(math/round-to 2.7 0)" => Value::float(3.0),
+    math_format_fixed: r#"(math/format-fixed 1.2 3)"# => Value::string("1.200"),
+    string_lines_count: r#"(length (string/lines "a\nb\r\nc\n"))"# => Value::int(3),
+    string_lines_first: r#"(first (string/lines "x\ny"))"# => Value::string("x"),
 }

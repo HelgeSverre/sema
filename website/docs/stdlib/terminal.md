@@ -307,6 +307,31 @@ Multiple spinners can run concurrently — each gets a unique ID:
 (term/spinner-stop s2 {:symbol "✔" :text "Task B done"})
 ```
 
+## Line Input
+
+Read whole lines from standard input (cooked mode — the terminal buffers a line until Enter). Useful for simple prompts and for piping data into a script.
+
+### `io/read-line`
+
+Block until a full line is available on stdin and return it as a string (without the trailing newline). Returns `nil` at end of input.
+
+```sema
+(define name (io/read-line))
+(println (str "Hello, " name))
+```
+
+### `io/eof?`
+
+Return `#t` once stdin has hit end of input (set when `io/read-line` / `io/read-stdin` / `io/read-key` returns `nil`). Pair it with `io/read-line` to consume piped input line by line:
+
+```sema
+(let loop ()
+  (let ((line (io/read-line)))
+    (unless (io/eof?)
+      (println (string/upper line))
+      (loop))))
+```
+
 ## Raw-Mode Input
 
 Primitives for building interactive TUIs: per-keystroke input, EOF detection, and signal-aware event loops. **Unix only** — these functions are no-op stubs on Windows.

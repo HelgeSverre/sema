@@ -28,25 +28,18 @@ fn write(dir: &std::path::Path, name: &str, src: &str) -> String {
     p.to_string_lossy().to_string()
 }
 
-/// Evaluate on the VM backend (sets vm_backend=true → load runs on the VM).
+/// Evaluate on the VM (the sole evaluator).
 fn vm(input: &str) -> Result<Value, String> {
     Interpreter::new()
         .eval_str_compiled(input)
         .map_err(|e| e.to_string())
 }
 
-/// Evaluate on the tree-walker backend.
-fn tw(input: &str) -> Result<Value, String> {
-    Interpreter::new()
-        .eval_str(input)
-        .map_err(|e| e.to_string())
-}
-
-fn assert_equiv(input: &str) -> Value {
+/// Evaluate on the VM and assert the result equals `expected`. (These cases once
+/// cross-checked against the tree-walker; with it retired we pin a literal oracle.)
+fn assert_vm_eq(input: &str, expected: Value) {
     let v = vm(input).unwrap_or_else(|e| panic!("VM failed for `{input}`: {e}"));
-    let t = tw(input).unwrap_or_else(|e| panic!("TW failed for `{input}`: {e}"));
-    assert_eq!(v, t, "VM/TW divergence for `{input}`");
-    v
+    assert_eq!(v, expected, "unexpected result for `{input}`");
 }
 
 #[test]
@@ -158,16 +151,20 @@ fn vm_load_error_propagates_and_recovers() {
 }
 
 #[test]
-fn vm_load_matches_tree_walker() {
+fn vm_load_runs_and_resolves() {
     let dir = temp_dir("load-equiv");
     let m = write(&dir, "m.sema", "(define (sq x) (* x x))\n(define base 5)");
-    assert_equiv(&format!(r#"(begin (load "{m}") (+ (sq base) base))"#));
+    // (sq 5) + 5 = 30
+    assert_vm_eq(
+        &format!(r#"(begin (load "{m}") (+ (sq base) base))"#),
+        Value::int(30),
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
-fn vm_backend_import_keeps_tree_walker_isolation() {
-    // M4: import now runs the module body on the VM, and module isolation still
+fn vm_import_keeps_module_isolation() {
+    // M4: import runs the module body on the VM, and module isolation still
     // holds — the ubiquitous "exported fn calls a private helper" pattern works
     // because M1 gives the exported closure a home-globals pointer to the
     // module env, so `private-helper` resolves there even when `public-api` is
@@ -269,15 +266,18 @@ fn vm_import_interleaved_with_importer_functions() {
 }
 
 #[test]
-fn vm_import_matches_tree_walker_isolation() {
-    // Equivalence: VM-backed import and tree-walker import agree on the result
-    // of the exported-calls-private pattern.
+fn vm_import_resolves_private_helper() {
+    // The exported-calls-private pattern: `pub` resolves `priv` in the module env.
     let dir = temp_dir("imp-equiv");
     let m = write(
         &dir,
         "lib.sema",
         "(define (priv x) (* x 3))\n(define (pub x) (+ (priv x) 1))",
     );
-    assert_equiv(&format!(r#"(begin (import "{m}" pub) (pub 10))"#));
+    // (pub 10) = (priv 10) + 1 = 31
+    assert_vm_eq(
+        &format!(r#"(begin (import "{m}" pub) (pub 10))"#),
+        Value::int(31),
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

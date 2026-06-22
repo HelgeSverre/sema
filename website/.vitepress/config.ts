@@ -201,6 +201,13 @@ export default defineConfig({
             { text: 'Tracing & Metrics', link: '/docs/llm/observability' },
             { text: 'Backend Compatibility', link: '/docs/llm/otel-compat' }
           ]
+        },
+        {
+          text: 'Cookbook',
+          collapsed: false,
+          items: [
+            { text: 'RAG: Retrieve & Rerank', link: '/docs/llm/rag' }
+          ]
         }
       ],
 
