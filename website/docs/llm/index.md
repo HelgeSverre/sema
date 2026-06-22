@@ -73,8 +73,8 @@ agent run — no manual instrumentation. Each completion and tool call is auto-t
 (`invoke_agent → chat → execute_tool`) with tokens, cost, and latency, exportable to
 any OTLP backend or a JSONL file. Off by default, zero-cost when off.
 
-- **[Tracing & Metrics](./observability.md)** — the GenAI spans/metrics, sessions,
+- **[Tracing & Metrics](./observability.md)** — the GenAI spans and metrics, sessions,
   privacy controls, and embedding Sema in your own app.
-- **[Backend Compatibility](./otel-compat.md)** — render first-class in Arize Phoenix,
-  Langfuse, Traceloop, and LangSmith via `SEMA_OTEL_COMPAT` (most other tools work with
-  zero config).
+- **[Backend Compatibility](./otel-compat.md)** — label the data so tools that use their
+  own attribute names (Arize Phoenix, Langfuse, Traceloop, LangSmith) read it too via
+  `SEMA_OTEL_COMPAT`. Most other tools work with no extra setup.
