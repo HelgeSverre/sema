@@ -1557,8 +1557,10 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         let mut max_tokens = None;
         let mut temperature = None;
         let mut system = None;
+        let mut conv_scope = ConvScope::default();
 
         if let Some(ref opts) = opts_map {
+            conv_scope = ConvScope::from_opts(Some(opts));
             model = get_opt_string(opts, "model").unwrap_or_default();
             max_tokens = get_opt_u32(opts, "max-tokens");
             temperature = get_opt_f64(opts, "temperature");
@@ -1570,16 +1572,14 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         request.temperature = temperature;
         request.system = system;
 
-        // Streaming bypasses do_complete/track_usage, so it gets its own CLIENT span.
-        let _conv = if sema_otel::current_conversation_id().is_none() {
-            Some(sema_otel::set_conversation_scope(
-                &sema_otel::new_conversation_id(),
-                None,
-                None,
-            ))
-        } else {
-            None
-        };
+        // Streaming bypasses do_complete/track_usage, so it gets its own CLIENT span +
+        // conversation scope. A caller-supplied id wins; else generate a fresh one (only
+        // if no scope is already active).
+        let _conv = conv_scope.open().or_else(|| {
+            (sema_otel::current_conversation_id().is_none()).then(|| {
+                sema_otel::set_conversation_scope(&sema_otel::new_conversation_id(), None, None)
+            })
+        });
         let span = sema_otel::llm_span("chat");
         span.set_request(
             request.temperature,
@@ -4247,12 +4247,15 @@ const CONTENT_FIELD_MAX: usize = 8192;
 
 fn truncate_content(s: &str) -> String {
     if s.len() <= CONTENT_FIELD_MAX {
-        s.to_string()
-    } else {
-        let mut t: String = s.chars().take(CONTENT_FIELD_MAX).collect();
-        t.push_str("…[truncated]");
-        t
+        return s.to_string();
     }
+    // Guard and truncate both in BYTES (the stated intent is bounding attribute size);
+    // back off to the nearest char boundary so the slice is valid UTF-8.
+    let mut end = CONTENT_FIELD_MAX;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…[truncated]", &s[..end])
 }
 
 /// Encode chat messages as the GenAI structured-message JSON array
@@ -4829,8 +4832,17 @@ fn run_tool_loop(
         request.reasoning_effort = reasoning_effort.clone();
         request.tools = tool_schemas.to_vec();
 
-        let response = do_complete(request)?;
-        track_usage(&response.usage)?;
+        let response = match do_complete(request) {
+            Ok(r) => r,
+            Err(e) => {
+                _agent_span.record_error("provider_error", &e.to_string());
+                return Err(e);
+            }
+        };
+        if let Err(e) = track_usage(&response.usage) {
+            _agent_span.record_error("budget_error", &e.to_string());
+            return Err(e);
+        }
         last_content = response.content.clone();
 
         if response.tool_calls.is_empty() {
@@ -4920,9 +4932,11 @@ fn run_tool_loop(
             ));
 
             if consecutive_errors >= MAX_CONSECUTIVE_TOOL_ERRORS {
-                return Err(SemaError::Llm(format!(
+                let msg = format!(
                     "aborting agent run after {consecutive_errors} consecutive tool errors"
-                )));
+                );
+                _agent_span.record_error("tool_error", &msg);
+                return Err(SemaError::Llm(msg));
             }
         }
     }

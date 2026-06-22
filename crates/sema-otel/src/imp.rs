@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use opentelemetry::global;
 use opentelemetry::metrics::Histogram;
-use opentelemetry::trace::{Span, SpanKind, Status, TraceContextExt, Tracer, TracerProvider};
+use opentelemetry::trace::{SpanKind, Status, TraceContextExt, Tracer, TracerProvider};
 use opentelemetry::{Array, Context, InstrumentationScope, KeyValue, StringValue, Value};
 use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
 use opentelemetry_sdk::trace::SdkTracerProvider;
@@ -114,30 +114,23 @@ pub fn use_provider(provider: SdkTracerProvider) {
     ENABLED.store(true, Ordering::Relaxed);
 }
 
-/// Decision #16 detector: is a REAL (non-Noop) tracer provider installed globally?
-/// opentelemetry 0.32 exposes no is-set flag, so probe span validity: a real SDK
-/// always allocates non-zero trace/span ids (valid context) even under AlwaysOff,
-/// while the Noop default yields an invalid context. The probe is suppressed so a live
-/// SDK drops it (id generation — hence validity — is unaffected by suppression).
-pub fn host_global_is_real() -> bool {
-    let _suppress = Context::enter_telemetry_suppressed_scope();
-    let tracer = global::tracer_with_scope(scope());
-    let mut span = tracer
-        .span_builder("sema.otel.probe")
-        .with_kind(SpanKind::Internal)
-        .start_with_context(&tracer, &Context::new());
-    let valid = span.span_context().is_valid();
-    span.end();
-    valid
-}
-
 /// Activate a telemetry mode. Returns an `OtelGuard` ONLY for `FromEnv` when Sema
 /// self-installs; all other modes install nothing and return `None`. This is the
 /// single activation entry point for embedders.
+///
+/// Precedence (Decision #16) is **explicit**, not auto-detected: opentelemetry 0.32
+/// exposes no way to detect an externally-installed provider without emitting a probe
+/// span into the host's pipeline, so `FromEnv` self-installs unconditionally. An
+/// embedder that already runs OTel should use `UseHostGlobal` or `OwnProvider` (which
+/// install nothing) instead of `FromEnv`.
 pub fn activate(mode: TelemetryMode) -> Option<OtelGuard> {
     match mode {
+        // `Off` is a non-configuring no-op: it leaves any already-installed telemetry
+        // (e.g. the standalone CLI's `init_from_env`) untouched and emits nothing extra.
         TelemetryMode::Off => None,
         TelemetryMode::UseHostGlobal => {
+            // Clear any owned provider from a prior mode so we resolve the global.
+            OWNED_PROVIDER.with(|c| *c.borrow_mut() = None);
             use_host_global();
             None
         }
@@ -146,13 +139,8 @@ pub fn activate(mode: TelemetryMode) -> Option<OtelGuard> {
             None
         }
         TelemetryMode::FromEnv => {
-            if host_global_is_real() {
-                // A host already runs OTel — defer to it, never overwrite (Decision #16).
-                use_host_global();
-                None
-            } else {
-                init_from_env()
-            }
+            OWNED_PROVIDER.with(|c| *c.borrow_mut() = None);
+            init_from_env()
         }
     }
 }
@@ -247,19 +235,26 @@ fn service_name() -> String {
 }
 
 /// Build the OTel `Resource` describing the producing service. Enriched beyond the
-/// bare service name so backends can filter/group on version + language + runtime.
+/// bare service name so backends can filter/group on version + language + runtime +
+/// environment.
 fn build_resource() -> Resource {
+    let mut attrs = vec![
+        KeyValue::new("service.version", VERSION),
+        KeyValue::new("telemetry.sdk.language", "rust"),
+        KeyValue::new("process.runtime.name", "sema"),
+        KeyValue::new("process.runtime.version", VERSION),
+    ];
+    // Standard env-name attribute (Langfuse + Logfire filter on it). Zero program change.
+    if let Some(env) = std::env::var("SEMA_OTEL_ENVIRONMENT")
+        .ok()
+        .or_else(|| std::env::var("DEPLOYMENT_ENVIRONMENT").ok())
+        .filter(|s| !s.is_empty())
+    {
+        attrs.push(KeyValue::new("deployment.environment.name", env));
+    }
     Resource::builder()
         .with_service_name(service_name())
-        .with_schema_url(
-            [
-                KeyValue::new("service.version", VERSION),
-                KeyValue::new("telemetry.sdk.language", "rust"),
-                KeyValue::new("process.runtime.name", "sema"),
-                KeyValue::new("process.runtime.version", VERSION),
-            ],
-            OTEL_SCHEMA_URL,
-        )
+        .with_schema_url(attrs, OTEL_SCHEMA_URL)
         .build()
 }
 
@@ -637,12 +632,14 @@ fn capture_content() -> bool {
 fn scrub(s: &str) -> String {
     const MAX: usize = 65_536;
     if s.len() <= MAX {
-        s.to_string()
-    } else {
-        let mut t: String = s.chars().take(MAX).collect();
-        t.push_str("…[truncated]");
-        t
+        return s.to_string();
     }
+    // Byte-bounded, backed off to a char boundary for valid UTF-8.
+    let mut end = MAX;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…[truncated]", &s[..end])
 }
 
 // ---------------------------------------------------------------------------
@@ -760,6 +757,10 @@ impl LlmSpan {
         if let Some(c) = &self.inner {
             c.set_i64("gen_ai.usage.input_tokens", facts.input_tokens as i64);
             c.set_i64("gen_ai.usage.output_tokens", facts.output_tokens as i64);
+            c.set_i64(
+                "gen_ai.usage.total_tokens",
+                (facts.input_tokens + facts.output_tokens) as i64,
+            );
             if facts.cache_read_input_tokens > 0 {
                 c.set_i64(
                     "gen_ai.usage.cache_read.input_tokens",
@@ -779,13 +780,23 @@ impl LlmSpan {
                 c.set_str_array("gen_ai.response.finish_reasons", vec![reason.clone()]);
             }
             if let Some(cost) = facts.cost_usd {
+                // De-facto community attribute (Decision #2) AND the key Langfuse maps
+                // (`gen_ai.usage.cost`) — emit both so cost renders everywhere.
                 c.set_f64("gen_ai.usage.cost_usd", cost);
+                c.set_f64("gen_ai.usage.cost", cost);
             }
             if facts.cache_hit {
-                c.set_bool("gen_ai.cache.hit", true);
+                // Vendor-prefixed: not a registered gen_ai.* attribute (mirrors
+                // sema.gen_ai.request.reasoning_effort).
+                c.set_bool("sema.gen_ai.cache.hit", true);
             }
         }
-        self.record_metrics(facts);
+        // A cache hit made no provider call (zero usage, no serving provider) — recording
+        // the histograms would emit a misleading zero-token sample with an empty provider
+        // dimension. Skip metrics; the span (with sema.gen_ai.cache.hit) still records it.
+        if !facts.cache_hit {
+            self.record_metrics(facts);
+        }
     }
 
     pub fn set_conversation_id(&self, id: &str) {
@@ -799,8 +810,15 @@ impl LlmSpan {
             return;
         }
         if let Some(c) = &self.inner {
-            c.set_str("gen_ai.input.messages", scrub(input));
-            c.set_str("gen_ai.output.messages", scrub(output));
+            let input = scrub(input);
+            let output = scrub(output);
+            // OTel GenAI structured form (Logfire/Braintrust/vanilla OTel read these).
+            c.set_str("gen_ai.input.messages", input.clone());
+            c.set_str("gen_ai.output.messages", output.clone());
+            // Langfuse maps observation I/O from these keys (it ignores gen_ai.*.messages),
+            // so the content actually renders on the generation.
+            c.set_str("langfuse.observation.input", input);
+            c.set_str("langfuse.observation.output", output);
             if let Some(sys) = system {
                 c.set_str("gen_ai.system_instructions", scrub(sys));
             }
@@ -877,6 +895,11 @@ impl AgentSpan {
     pub fn set_conversation_id(&self, id: &str) {
         if let Some(c) = &self.inner {
             c.set_str("gen_ai.conversation.id", id.to_string());
+        }
+    }
+    pub fn record_error(&self, kind: &str, msg: &str) {
+        if let Some(c) = &self.inner {
+            c.record_error(kind, msg);
         }
     }
 }

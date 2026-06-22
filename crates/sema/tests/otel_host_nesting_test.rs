@@ -1,7 +1,6 @@
 //! Gap-3: embedded host nesting. With `TelemetryMode::UseHostGlobal`, Sema emits
 //! against the host's global provider and its root span nests under the host's active
-//! span (Decision #13). Also proves `host_global_is_real()` detects a real provider
-//! (Decision #16). Own binary (global provider is process-global).
+//! span (Decision #13). Own binary (global provider is process-global).
 
 #![cfg(not(target_arch = "wasm32"))]
 
@@ -15,12 +14,6 @@ use sema_otel::TelemetryMode;
 fn sema_span_nests_under_host_span() {
     // The host installs its own global provider with an in-memory exporter.
     let cap = sema_otel::testing::install();
-
-    // Decision #16 detector sees the real provider.
-    assert!(
-        sema_otel::host_global_is_real(),
-        "a real installed provider must be detected"
-    );
 
     // Build an embedded interpreter that uses the host's global provider (installs none).
     let interp = InterpreterBuilder::new()
@@ -53,4 +46,11 @@ fn sema_span_nests_under_host_span() {
         "Sema span must nest under the host's current span"
     );
     assert_eq!(sema_span["trace_id"], host_trace_id);
+
+    // No-leak invariant: the embedded/telemetry-mode machinery must never emit a stray
+    // diagnostic probe span into the host's pipeline.
+    assert!(
+        !spans.iter().any(|s| s["name"] == "sema.otel.probe"),
+        "no probe span may leak into the host pipeline"
+    );
 }

@@ -50,8 +50,10 @@ impl InterpreterBuilder {
 
     /// Configure how this interpreter emits OpenTelemetry (default
     /// [`TelemetryMode::Off`](sema_otel::TelemetryMode::Off) — no telemetry, never
-    /// touches any global provider). For `FromEnv` use [`Self::build_with_telemetry`]
-    /// so the returned guard (which owns flush-on-exit) stays alive.
+    /// touches any global provider). For `FromEnv`, the self-installed provider is owned
+    /// by the built [`Interpreter`] and flushes when it is dropped. An embedder that
+    /// already runs OTel should use `UseHostGlobal` or `OwnProvider` (which install
+    /// nothing) rather than `FromEnv`.
     pub fn with_telemetry(mut self, mode: sema_otel::TelemetryMode) -> Self {
         self.telemetry = mode;
         self
@@ -93,17 +95,10 @@ impl InterpreterBuilder {
 
     /// Build the [`Interpreter`] with the configured options.
     ///
-    /// For `TelemetryMode::FromEnv`, prefer [`Self::build_with_telemetry`] — `build`
-    /// drops the telemetry guard, losing flush-on-exit for a self-installed provider.
+    /// Any telemetry guard (for `TelemetryMode::FromEnv`) is owned BY the returned
+    /// interpreter, so it flushes when the interpreter is dropped (and the process-exit
+    /// hook covers `std::process::exit`). No separate guard handling is required.
     pub fn build(self) -> Interpreter {
-        let (interp, _guard) = self.build_with_telemetry();
-        interp
-    }
-
-    /// Build the interpreter and return the OpenTelemetry guard (if any). Hosts using
-    /// `TelemetryMode::FromEnv` must keep the returned guard alive for the process
-    /// lifetime; all other modes return `None` (they install nothing to shut down).
-    pub fn build_with_telemetry(self) -> (Interpreter, Option<sema_otel::OtelGuard>) {
         sema_llm::builtins::reset_runtime_state();
         // Activate telemetry AFTER reset_runtime_state so the per-thread reset can't
         // wipe facade state. `new()`/`build()` with the default `Off` is a pure no-op
@@ -133,12 +128,10 @@ impl InterpreterBuilder {
         sema_eval::register_vm_delegates(&global_env);
         sema_eval::load_prelude(&ctx, &global_env);
 
-        (
-            Interpreter {
-                inner: sema_eval::Interpreter { global_env, ctx },
-            },
-            guard,
-        )
+        Interpreter {
+            inner: sema_eval::Interpreter { global_env, ctx },
+            _otel_guard: guard,
+        }
     }
 }
 
@@ -148,6 +141,9 @@ impl InterpreterBuilder {
 /// [`Interpreter::new`] for a default interpreter with stdlib enabled.
 pub struct Interpreter {
     inner: sema_eval::Interpreter,
+    /// Owns any self-installed OpenTelemetry provider (TelemetryMode::FromEnv) for the
+    /// interpreter's lifetime; flushes on drop. `None` for all other modes.
+    _otel_guard: Option<sema_otel::OtelGuard>,
 }
 
 impl Default for Interpreter {

@@ -34,7 +34,9 @@ fn provider_error_tags_span_error() {
         .expect("a chat span should still be emitted on error");
     assert_eq!(chat["attributes"]["error.type"], "provider_error");
     assert!(
-        chat["status"].as_str().is_some_and(|s| s.starts_with("error")),
+        chat["status"]
+            .as_str()
+            .is_some_and(|s| s.starts_with("error")),
         "span status should be Error, got {:?}",
         chat["status"]
     );

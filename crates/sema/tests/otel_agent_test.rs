@@ -84,7 +84,10 @@ fn agent_run_emits_agent_tool_chat_tree() {
     let conv = agent["attributes"]["gen_ai.conversation.id"]
         .as_str()
         .expect("agent span carries a conversation id");
-    assert!(conv.starts_with("conv_"), "generated conversation id: {conv}");
+    assert!(
+        conv.starts_with("conv_"),
+        "generated conversation id: {conv}"
+    );
     assert_eq!(agent["attributes"]["session.id"], conv);
     for s in [tool].into_iter().chain(chats.iter().copied()) {
         assert_eq!(

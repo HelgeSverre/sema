@@ -72,10 +72,10 @@ fn llm_completion_emits_genai_chat_span() {
         json!(["end_turn"])
     );
 
-    // The cache-hit span: gen_ai.cache.hit=true, zero usage, no provider attribute.
+    // The cache-hit span: sema.gen_ai.cache.hit=true, zero usage, no provider attribute.
     let hit = chat
         .iter()
-        .find(|s| s["attributes"]["gen_ai.cache.hit"] == true)
+        .find(|s| s["attributes"]["sema.gen_ai.cache.hit"] == true)
         .expect("a cache-hit chat span");
     assert_eq!(hit["attributes"]["gen_ai.usage.input_tokens"], 0);
     assert_eq!(hit["attributes"]["gen_ai.usage.output_tokens"], 0);

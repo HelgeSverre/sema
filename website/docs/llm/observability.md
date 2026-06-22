@@ -88,7 +88,7 @@ Key span attributes: `gen_ai.operation.name`, `gen_ai.provider.name`,
 `gen_ai.request.model` / `gen_ai.response.model`, `gen_ai.usage.input_tokens` /
 `output_tokens`, `gen_ai.usage.cache_read.input_tokens` /
 `cache_creation.input_tokens`, `gen_ai.response.finish_reasons`,
-`gen_ai.usage.cost_usd`, and `gen_ai.cache.hit` on cached responses. Tool spans carry
+`gen_ai.usage.cost_usd` (+ `gen_ai.usage.cost` for Langfuse), and `sema.gen_ai.cache.hit` on cached responses. Tool spans carry
 `gen_ai.tool.name` / `gen_ai.tool.call.id` / `gen_ai.tool.type`.
 
 ### Sessions & users (multi-turn grouping)

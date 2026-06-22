@@ -27,10 +27,6 @@ pub enum TelemetryMode {
     FromEnv,
 }
 
-pub fn host_global_is_real() -> bool {
-    false
-}
-
 pub fn activate(_mode: TelemetryMode) -> Option<OtelGuard> {
     None
 }
@@ -95,6 +91,7 @@ pub fn agent_span(_name: Option<&str>) -> AgentSpan {
 
 impl AgentSpan {
     pub fn set_conversation_id(&self, _id: &str) {}
+    pub fn record_error(&self, _kind: &str, _msg: &str) {}
 }
 
 pub struct RetrySpan;
