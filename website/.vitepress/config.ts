@@ -147,15 +147,15 @@ export default defineConfig({
 
       '/docs/llm/': [
         {
-          text: 'LLM Basics',
+          text: 'LLM Essentials',
           collapsed: false,
           items: [
             { text: 'Overview', link: '/docs/llm/' },
             { text: 'Completion & Chat', link: '/docs/llm/completion' },
-            { text: 'Prompts & Messages', link: '/docs/llm/prompts' },
+            { text: 'Tools & Agents', link: '/docs/llm/tools-agents' },
             { text: 'Conversations', link: '/docs/llm/conversations' },
-            { text: 'Structured Extraction', link: '/docs/llm/extraction' },
-            { text: 'Tools & Agents', link: '/docs/llm/tools-agents' }
+            { text: 'Prompts & Messages', link: '/docs/llm/prompts' },
+            { text: 'Structured Extraction', link: '/docs/llm/extraction' }
           ]
         },
         {
