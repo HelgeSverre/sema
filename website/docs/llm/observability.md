@@ -146,8 +146,28 @@ truncated to bound span size.
 
 ## Embedding Sema in your own app
 
-When Sema runs as an embedded library, it never installs a global tracer provider on
-its own — it emits against whatever provider your application already configured via
-`opentelemetry::global`, and its spans automatically nest under your current span
-(seeded from `opentelemetry::Context::current()`). If your host has no provider
-installed, Sema's spans are a silent no-op. See the embedding guide for details.
+When Sema runs as an embedded library it **never installs a global tracer provider on
+its own**. You choose how it hooks into telemetry via
+`InterpreterBuilder::with_telemetry(mode)`:
+
+```rust
+use sema::InterpreterBuilder;
+use sema_otel::TelemetryMode;
+
+// Emit against the provider your app already installed in `opentelemetry::global`.
+let interp = InterpreterBuilder::new()
+    .with_telemetry(TelemetryMode::UseHostGlobal)
+    .build();
+```
+
+| `TelemetryMode` | Behavior |
+| --- | --- |
+| `Off` (default) | No telemetry; never touches any global state (pure no-op). |
+| `UseHostGlobal` | Emit against the host's ambient global provider (silent no-op if none). |
+| `OwnProvider(p)` | Emit against a provider you hand Sema; installs **no** global. |
+| `FromEnv` | Self-install from `OTEL_*`/`SEMA_OTEL_FILE` — but **declines** if the host already installed a real provider (defers to it). Use `build_with_telemetry()` to keep the returned guard alive. |
+
+Sema's spans automatically **nest under your current span** (seeded from
+`opentelemetry::Context::current()`), so a host HTTP-request span becomes the parent
+of Sema's `invoke_agent → chat/execute_tool` tree. `Interpreter::new()` /
+`build()` with the default `Off` never touch global OTel state.
