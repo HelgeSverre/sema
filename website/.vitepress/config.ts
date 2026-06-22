@@ -60,7 +60,7 @@ export default defineConfig({
 
 
   themeConfig: {
-    logo: '/logo.svg',
+    logo: { src: '/logo.svg', alt: 'Sema' },
     siteTitle: false,
 
     nav: [
@@ -311,18 +311,24 @@ export default defineConfig({
       override['twitter:description'] = description
     }
 
-    const next = head.filter(([tag, attrs]) => {
-      const key = (attrs as any)?.property || (attrs as any)?.name
-      if (tag === 'link' && (attrs as any)?.rel === 'canonical') return false
-      return !(tag === 'meta' && key in override)
-    })
+    // VitePress *appends* whatever this hook returns to the existing `head`, so we
+    // must return ONLY the new/override tags — returning the whole head array would
+    // emit every global tag (fonts, favicon, analytics…) a second time. Drop the
+    // placeholders we're overriding from `head` in place, then append the real ones.
+    for (let i = head.length - 1; i >= 0; i--) {
+      const [tag, attrs] = head[i] as [string, Record<string, string>]
+      const key = attrs?.property || attrs?.name
+      if (tag === 'link' && attrs?.rel === 'canonical') head.splice(i, 1)
+      else if (tag === 'meta' && key in override) head.splice(i, 1)
+    }
+    const added: [string, Record<string, string>][] = []
     for (const [key, content] of Object.entries(override)) {
       const attr = key.startsWith('twitter:') ? 'name' : 'property'
-      next.push(['meta', { [attr]: key, content }])
+      added.push(['meta', { [attr]: key, content }])
     }
     // Explicit canonical so the clean URL is the one search engines consolidate to.
-    next.push(['link', { rel: 'canonical', href: url }])
-    return next
+    added.push(['link', { rel: 'canonical', href: url }])
+    return added
   },
 
   markdown: {

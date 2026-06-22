@@ -27,8 +27,8 @@ const copyText = (id, event) => {
 
     <nav>
       <div class="wrap nav-in">
-        <a href="/" class="logo-link">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 366.00 132.00" class="logo-svg">
+        <a href="/" class="logo-link" aria-label="Sema home">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 366.00 132.00" class="logo-svg" role="img" aria-label="Sema logo">
             <path
               d="M48.5000 104.3000L48.5000 114Q34 110.7000 26.0500 100.5000Q18.1000 90.3000 18.1000 75L18.1000 57Q18.1000 41.7000 26.0500 31.5000Q34 21.3000 48.5000 18L48.5000 27.6000Q42.2000 29.1000 37.6000 33.1500Q33 37.2000 30.5000 43.3000Q28 49.4000 28 57L28 75Q28 82.6000 30.5000 88.6500Q33 94.7000 37.6000 98.7500Q42.2000 102.8000 48.5000 104.3000"
               fill="#c8a855" />
@@ -68,6 +68,7 @@ const copyText = (id, event) => {
       </div>
     </nav>
 
+    <main>
     <!-- ============ HERO ============ -->
     <header class="hero">
       <span class="hero-paren l" aria-hidden="true">(</span>
@@ -439,6 +440,7 @@ messages = [{<span class="c-str">"role"</span>: <span class="c-str">"user"</span
         </div>
       </div>
     </section>
+    </main>
 
     <footer>
       <div class="wrap foot-in">
