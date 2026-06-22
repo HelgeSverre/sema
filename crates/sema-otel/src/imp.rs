@@ -267,43 +267,72 @@ fn build_resource() -> Resource {
 // Initialization & shutdown
 // ---------------------------------------------------------------------------
 
-/// RAII guard owning the installed provider. `Drop` does a bounded
-/// flush + shutdown so short-lived `sema run file.sema` processes never lose the
-/// last spans and never hang on a dead collector.
-pub struct OtelGuard {
+struct ShutdownState {
     provider: Option<SdkTracerProvider>,
     meter: Option<SdkMeterProvider>,
 }
 
+/// The installed providers awaiting flush. Drained exactly once — by whichever of
+/// `OtelGuard::drop` (normal return) or the `atexit` hook (a `std::process::exit`
+/// path) fires first.
+static SHUTDOWN: std::sync::Mutex<Option<ShutdownState>> = std::sync::Mutex::new(None);
+static ATEXIT_ONCE: Once = Once::new();
+
+/// Register the providers for flush-at-exit and install the `atexit` hook once. The
+/// hook guarantees OTLP spans flush even on the CLI's many `std::process::exit` paths
+/// (which skip `Drop`); `libc::exit` runs C `atexit` handlers.
+fn register_shutdown(provider: Option<SdkTracerProvider>, meter: Option<SdkMeterProvider>) {
+    if let Ok(mut g) = SHUTDOWN.lock() {
+        *g = Some(ShutdownState { provider, meter });
+    }
+    ATEXIT_ONCE.call_once(|| unsafe {
+        libc::atexit(atexit_flush);
+    });
+}
+
+extern "C" fn atexit_flush() {
+    take_and_flush();
+}
+
+/// Take the pending providers (if any) and run a bounded flush + shutdown. The
+/// async-runtime (gRPC) processors' force_flush/shutdown block until export completes
+/// and IGNORE their timeout — against a dead collector that could hang exit. So run
+/// the work on a side thread joined with a hard wall-clock budget; if it overruns,
+/// abandon it and let process teardown reclaim the static runtime. (The JSONL simple
+/// exporter is synchronous and flushed inside this same call — unaffected.) Idempotent.
+fn take_and_flush() {
+    let state = SHUTDOWN.lock().ok().and_then(|mut g| g.take());
+    let Some(state) = state else { return };
+    let handle = std::thread::spawn(move || {
+        if let Some(p) = state.provider {
+            let _ = p.force_flush();
+            let _ = p.shutdown_with_timeout(Duration::from_secs(3));
+        }
+        if let Some(m) = state.meter {
+            let _ = m.force_flush();
+            let _ = m.shutdown();
+        }
+    });
+    let deadline = std::time::Instant::now() + Duration::from_secs(4);
+    while !handle.is_finished() && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    if handle.is_finished() {
+        let _ = handle.join();
+    }
+    // else: abandon the thread; process exit tears down the runtime.
+}
+
+/// RAII guard for a Sema-installed provider. `Drop` triggers the bounded flush on
+/// normal return; the `atexit` hook covers `std::process::exit` paths. Either way the
+/// flush runs exactly once.
+pub struct OtelGuard {
+    _private: (),
+}
+
 impl Drop for OtelGuard {
     fn drop(&mut self) {
-        // The async-runtime (gRPC) processors' force_flush/shutdown block until the
-        // export completes and IGNORE their timeout arg — against a dead collector that
-        // could hang process exit. Run the whole flush+shutdown on a side thread and
-        // join it with a hard wall-clock budget; if it overruns, abandon it and let
-        // process teardown reclaim the static runtime. (The JSONL simple exporter is
-        // synchronous and flushed inside this same call — unaffected.)
-        let provider = self.provider.take();
-        let meter = self.meter.take();
-        let handle = std::thread::spawn(move || {
-            if let Some(p) = provider {
-                let _ = p.force_flush();
-                let _ = p.shutdown_with_timeout(Duration::from_secs(3));
-            }
-            if let Some(m) = meter {
-                let _ = m.force_flush();
-                let _ = m.shutdown();
-            }
-        });
-        // Poll for completion up to ~4s without blocking forever.
-        let deadline = std::time::Instant::now() + Duration::from_secs(4);
-        while !handle.is_finished() && std::time::Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(25));
-        }
-        if handle.is_finished() {
-            let _ = handle.join();
-        }
-        // else: abandon the thread; process exit tears down the runtime.
+        take_and_flush();
     }
 }
 
@@ -328,7 +357,10 @@ pub fn init_from_env() -> Option<OtelGuard> {
             ENABLED.store(true, Ordering::Relaxed);
             METRICS_ENABLED.store(true, Ordering::Relaxed);
         }
-        guard = Some(OtelGuard { provider, meter });
+        // Register for flush-at-exit (Drop + atexit, take-once) so spans survive both
+        // normal return AND std::process::exit.
+        register_shutdown(provider, meter);
+        guard = Some(OtelGuard { _private: () });
     });
     guard
 }

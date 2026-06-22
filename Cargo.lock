@@ -3198,6 +3198,7 @@ dependencies = [
 name = "sema-otel"
 version = "1.21.2"
 dependencies = [
+ "libc",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry-semantic-conventions",

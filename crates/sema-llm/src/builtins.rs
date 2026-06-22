@@ -1410,13 +1410,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
 
         // Honor a caller-supplied conversation/session/user identity (else do_complete
         // generates a fresh conversation id).
-        let _conv = conv_scope.conversation.as_ref().map(|c| {
-            sema_otel::set_conversation_scope(
-                c,
-                conv_scope.session.as_deref(),
-                conv_scope.user.as_deref(),
-            )
-        });
+        let _conv = conv_scope.open();
 
         let messages = vec![ChatMessage::new("user", prompt_text)];
 
@@ -1485,6 +1479,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                 request.temperature = temperature;
                 request.system = system;
                 request.reasoning_effort = reasoning_effort;
+                let _conv = conv_scope.open();
                 let response = do_complete(request)?;
                 track_usage(&response.usage)?;
                 Ok(Value::string(&response.content))
@@ -4304,6 +4299,24 @@ impl ConvScope {
             session: get("session-id"),
             user: get("user-id"),
         }
+    }
+
+    /// Open a telemetry scope when ANY id was supplied (a missing conversation id is
+    /// generated, so `:session-id`/`:user-id` alone still take effect). Returns `None`
+    /// when nothing was supplied (the callee will generate a fresh conversation id).
+    fn open(&self) -> Option<sema_otel::ConversationGuard> {
+        if self.conversation.is_none() && self.session.is_none() && self.user.is_none() {
+            return None;
+        }
+        let cid = self
+            .conversation
+            .clone()
+            .unwrap_or_else(sema_otel::new_conversation_id);
+        Some(sema_otel::set_conversation_scope(
+            &cid,
+            self.session.as_deref(),
+            self.user.as_deref(),
+        ))
     }
 }
 

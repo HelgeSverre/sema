@@ -43,6 +43,8 @@ opentelemetry-semantic-conventions = { version = "0.32", features = [
 ] }
 # A live tokio reactor is needed ONLY to construct the gRPC (tonic) exporter.
 tokio = { workspace = true }
+# atexit hook so OTLP spans flush even on the CLI's std::process::exit paths.
+libc = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 opentelemetry_sdk = { version = "0.32", features = ["trace", "metrics", "testing"] }
