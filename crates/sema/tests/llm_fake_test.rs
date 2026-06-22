@@ -328,3 +328,45 @@ fn client_4xx_is_not_retried() {
     assert!(result.is_err(), "a 400 must not be retried");
     assert_eq!(recorder.call_count(), 1, "no retry on a 4xx");
 }
+
+/// Regression guard for the sema-llm eval-callback consolidation
+/// (docs/plans/2026-06-22-unify-sema-llm-eval-callback.md): a tool handler that
+/// uses real special forms (`let`/`if`/`cond`/`string-append`) and a `set!`
+/// side effect on an outer binding must run correctly through whatever evaluator
+/// path the agent loop dispatches the handler on. Pins behavior across the
+/// migration from the bespoke `call_value_fn` to `sema_core::call_callback`.
+#[test]
+fn tool_handler_runs_full_evaluator_with_side_effects() {
+    let fake = FakeProvider::builder("fake")
+        .model("fake-model")
+        .tool_call("c1", "classify", serde_json::json!({"n": 7}))
+        .reply("done")
+        .build();
+
+    let src = r#"
+        (define hits 0)
+        (deftool classify
+          "Classify a number"
+          {:n {:type :number}}
+          (lambda (n)
+            (set! hits (+ hits 1))
+            (let ((label (cond ((< n 0) "neg") ((= n 0) "zero") (else "pos"))))
+              (if (> n 5) (string-append label "-big") label))))
+
+        (defagent bot {:model "fake-model" :tools [classify] :max-turns 5})
+        (agent/run bot "classify 7")
+        hits
+    "#;
+
+    let (result, recorder) = eval_with_fake(src, fake);
+    let val = result.expect("agent/run with a computing tool handler should succeed");
+    // The handler's `set!` on the outer `hits` was observed exactly once — proving
+    // the handler ran on the full evaluator (let/if/cond all evaluated) and its
+    // mutation propagated out through the callback path.
+    assert_eq!(
+        val.as_int(),
+        Some(1),
+        "tool handler's set! on an outer binding must persist"
+    );
+    assert_eq!(recorder.call_count(), 2, "tool call round + final answer");
+}
