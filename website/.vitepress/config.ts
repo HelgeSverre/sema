@@ -5,6 +5,9 @@ import semaLang from './sema.tmLanguage.json'
 // (gold keywords, green strings, orange numbers, cyan :keywords, dim parens).
 import semaCodeTheme from './sema-code-theme.json'
 import { SITE, OG_WIDTH, OG_HEIGHT, OG_EXT, ogSlug } from './og.shared.mjs'
+// Auto-generates /llms.txt (index) and /llms-full.txt (all docs) at build time,
+// so they never go stale. Replaces the old hand-maintained public/llms*.txt.
+import llmstxt from 'vitepress-plugin-llms'
 
 export default defineConfig({
   title: 'Sema',
@@ -29,6 +32,13 @@ export default defineConfig({
   // Allow importing the built @sema/ui bundle + example sources from the repo root.
   vite: {
     server: { fs: { allow: ['../..'] } },
+    plugins: [
+      llmstxt({
+        domain: 'https://sema-lang.com',
+        title: 'Sema',
+        description: 'A Scheme-like Lisp with first-class LLM primitives, implemented in Rust.',
+      }),
+    ],
   },
 
   sitemap: {
