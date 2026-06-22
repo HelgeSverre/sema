@@ -7,8 +7,10 @@
 - **LLM cassettes — record/replay for deterministic, keyless testing & demos.** A new
   `sema-llm::cassette` layer records real LLM responses to an NDJSON tape once, then
   replays them deterministically forever — no API key, no network. `llm/complete`,
-  `llm/chat`, `llm/extract`, and **agent loops** (`agent/run`, each turn keyed
-  independently) are covered; streaming and embeddings are not yet. Modes
+  `llm/chat`, `llm/extract`, **agent loops** (`agent/run`, each turn keyed
+  independently), **streaming** (`llm/stream`, the chunk sequence is recorded and
+  replayed in order) and **embeddings** (`llm/embed`, vectors recorded and replayed)
+  are all covered. Modes
   `:auto` / `:replay` / `:record`; a `:replay` miss is a hard error that surfaces
   prompt drift. Surface: `(llm/with-cassette path opts thunk)`,
   `llm/cassette-load`/`-save`/`-eject`, and `SEMA_LLM_CASSETTE` /
