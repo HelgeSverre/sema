@@ -141,10 +141,23 @@ A RAG-style workflow: embed documents, store them, search semantically, and pers
 ;; Save to disk
 (vector-store/save "docs")
 
-;; Search
-(define results
-  (vector-store/search "docs" (llm/embed "programming languages") 2))
-(map (lambda (r) (:text (:metadata r))) results)
+;; Retrieve the most relevant chunks for a question...
+(define question "Which language is homoiconic?")
+(define hits (vector-store/search "docs" (llm/embed question) 2))
+
+;; ...then generate an answer grounded in only that context (the "G" in RAG)
+(define context (string/join (map (lambda (h) (:text (:metadata h))) hits) "\n"))
+(llm/complete
+  (prompt (system "Answer using only the provided context. Be concise.")
+          (user (format "Context:\n~a\n\nQuestion: ~a" context question)))
+  {:max-tokens 120})
+;; => "Lisp — it is homoiconic."
 ```
 
 Next time you run, `(vector-store/open "docs" "my-docs.json")` will load the saved embeddings instantly — no re-embedding needed.
+
+::: warning Use one embedding model per store
+Every document and the query must share the same embedding dimensions. Mixing embedding
+models (or providers) in one store raises a *dimension-mismatch* error at search time — so
+pick one embedding model per store.
+:::

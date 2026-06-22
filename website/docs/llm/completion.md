@@ -41,6 +41,15 @@ With a callback function:
   {:max-tokens 200})
 ```
 
+`llm/stream` **returns the full accumulated response string** once streaming finishes — so
+you can show the live stream *and* keep the final text:
+
+```sema
+(define story
+  (llm/stream "Tell me a story" (fn (c) (display c)) {:max-tokens 200}))
+;; `story` is the complete text after the stream ends.
+```
+
 ## Chat
 
 ### `llm/chat`
@@ -53,6 +62,11 @@ Send a list of messages and get a response. Supports system, user, and assistant
         (message :user "What is Lisp? One sentence."))
   {:max-tokens 100})
 ```
+
+When you pass `:tools`, `llm/chat` runs the tool-execution loop for you (see
+[Tools & Agents](./tools-agents)). Two options bound it: `:tool-mode :none` lets the model
+*see* the tools but never auto-executes them, and `:max-tool-rounds N` caps the loop
+(default 10).
 
 ### Multi-Modal Chat
 

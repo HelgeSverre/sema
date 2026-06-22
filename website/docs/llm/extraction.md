@@ -23,6 +23,18 @@ Extract structured data from text according to a schema. The schema defines the 
 
 The schema map specifies field names as keys and type descriptors as values. Supported types include `:string`, `:number`, `:boolean`, and `:list`/`:array`.
 
+A field value can be written two ways, and they behave differently:
+
+- **Descriptor map** — `{:amount {:type :number}}`. This form is **type-checked**, and
+  supports `:optional` and a custom `:validate` predicate (below). Use it for any field you
+  want validated.
+- **Bare type keyword** — `{:amount :number}` is shorthand, but the type is sent to the
+  model only as an untyped hint — it is **not** validated. Reach for the descriptor map when
+  correctness matters.
+
+Only `:type`, `:optional`, and `:validate` on a field descriptor affect behavior; a
+`:description` on a field is currently ignored by extraction (it isn't sent to the model).
+
 ### Options
 
 `llm/extract` accepts an optional third argument — an options map:
@@ -119,6 +131,16 @@ Classify text into one of a set of categories. Returns the matching keyword.
 ```
 
 Pass a list of keyword labels and the text to classify. The LLM picks the best-matching label.
+
+An optional third options map takes `:model` — handy for using a cheap, fast model for
+classification:
+
+```sema
+(llm/classify (list :spam :ham) text {:model "claude-haiku-4-5-20251001"})
+```
+
+The return type follows the labels: a list of **keywords** classifies to a keyword, a list
+of **strings** to a string.
 
 ## Vision Extraction
 

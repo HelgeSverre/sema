@@ -4,24 +4,28 @@ outline: [2, 3]
 
 # Embeddings & Similarity
 
-Generate vector embeddings from text and compute similarity between them. Embeddings are auto-configured from environment variables (`JINA_API_KEY`, `VOYAGE_API_KEY`, or `COHERE_API_KEY`).
+Generate vector embeddings from text and compute similarity between them. On startup
+`(llm/auto-configure)` picks an embedding provider by **precedence** — `JINA_API_KEY`,
+then `VOYAGE_API_KEY`, then `COHERE_API_KEY`; if none is set it falls back to
+`OPENAI_API_KEY` (`text-embedding-3-small`). The first key present wins.
 
 ## Configuration
 
 ### `llm/configure-embeddings`
 
-Configure a dedicated embedding provider separately from the chat provider.
+Configure a dedicated embedding provider separately from the chat provider — so you can use
+one provider for chat and another for embeddings. Pass `:default-model` to pick the model
+(otherwise each provider uses its default: `jina-embeddings-v3`, `voyage-3`, or
+`text-embedding-3-small`):
 
 ```sema
-(llm/configure-embeddings :jina {:api-key (env "JINA_API_KEY")})
-(llm/configure-embeddings :voyage {:api-key (env "VOYAGE_API_KEY")})
-(llm/configure-embeddings :cohere {:api-key (env "COHERE_API_KEY")})
+(llm/configure-embeddings :voyage
+  {:api-key (env "VOYAGE_API_KEY") :default-model "voyage-3-large"})
 
-;; OpenAI-compatible embedding provider
-(llm/configure-embeddings :openai {:api-key (env "OPENAI_API_KEY")})
+;; OpenAI-compatible embedding provider, with a model and optional base URL
+(llm/configure-embeddings :openai
+  {:api-key (env "OPENAI_API_KEY") :default-model "text-embedding-3-large"})
 ```
-
-This allows you to use one provider for chat (e.g., Anthropic) and a different one for embeddings.
 
 ## Generating Embeddings
 
@@ -32,6 +36,9 @@ Generate an embedding for a string or a list of strings. Returns a **bytevector*
 ```sema
 ;; Single embedding (returns a bytevector)
 (define v1 (llm/embed "hello world"))
+
+;; Pick the model per call with an options map
+(llm/embed "hello world" {:model "text-embedding-3-small"})
 
 ;; Batch embeddings
 (llm/embed ["cat" "dog" "fish"])       ; => list of bytevectors

@@ -69,8 +69,8 @@ export default defineConfig({
         text: 'Reference',
         items: [
           { text: 'Standard Library', link: '/docs/stdlib/' },
-          { text: 'LLM Primitives', link: '/docs/llm/' },
-          { text: 'CLI & Tools', link: '/docs/cli' }
+          { text: 'LLM & Agents', link: '/docs/llm/' },
+          { text: 'CLI & Tooling', link: '/docs/cli' }
         ]
       },
       { text: 'Internals', link: '/docs/internals/architecture' },

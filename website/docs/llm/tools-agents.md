@@ -83,20 +83,34 @@ Define an agent with a system prompt, tools, model, and turn limit.
 
 ### `agent/run`
 
-Run an agent with a user message. The agent will loop, calling tools as needed, until it has a final answer or hits the turn limit.
+Run an agent with a user message. The agent loops, calling tools as needed, until it has a final answer or hits the turn limit. The two-argument form returns the final answer as a **string**:
 
 ```sema
-(agent/run weather-bot "What's the weather in Tokyo?")
+(agent/run weather-bot "What's the weather in Tokyo?")  ; => "It's sunny, 22°C."
 ```
 
-An optional third argument takes per-run options:
+An optional third argument takes per-run options. **Passing an options map changes the return value** to a map with the final reply *and* the full message history:
 
 ```sema
-(agent/run weather-bot "What's the weather in Tokyo?"
-  {:reasoning-effort :high          ; reasoning effort for this run (see Completion)
-   :on-tool-call (fn (event) ...)   ; observe each tool call (:start / :end events)
-   :messages prior-history})         ; seed the loop with prior conversation
+(define result
+  (agent/run weather-bot "What's the weather in Tokyo?"
+    {:reasoning-effort :high       ; reasoning effort for this run (see Completion)
+     :messages prior-history       ; seed the loop with prior conversation
+     :on-tool-call observe-tool})) ; observe each tool call — see below
+
+(:response result)   ; => the final answer string
+(:messages result)   ; => the full conversation (to continue or inspect)
 ```
+
+**Observing tool calls.** `:on-tool-call` fires once when each tool starts and once when it ends. The event is a map — branch on `(:event e)`, the string `"start"` or `"end"`:
+
+```sema
+(define (observe-tool e)
+  (when (= (:event e) "end")
+    (println (:tool e) "→" (:result e) (format "(~ams)" (:duration-ms e)))))
+```
+
+The event map carries `:event` (`"start"` / `"end"`), `:tool` (the tool name), and `:args`; on `"end"` it adds `:result` (a preview of the return value), `:error` (a boolean), and `:duration-ms`.
 
 **Error recovery.** A tool that throws, isn't found, or is called with arguments
 that don't match its declared schema does **not** abort the run — the error is
