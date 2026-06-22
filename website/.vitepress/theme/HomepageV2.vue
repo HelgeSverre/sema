@@ -445,13 +445,16 @@ messages = [{<span class="c-str">"role"</span>: <span class="c-str">"user"</span
         <span><span style="color:var(--gold)">(</span>sema<span style="color:var(--gold)">)</span></span>
         <span>
         <a href="/docs/">Docs</a> ·
-        <a href="/docs/internals/lisp-comparison.html">Benchmarks</a> ·
+        <a href="/docs/internals/lisp-comparison">Benchmarks</a> ·
         <a href="https://github.com/HelgeSverre/sema/blob/main/CHANGELOG.md">Changelog</a> ·
         <a href="https://github.com/HelgeSverre/sema">GitHub</a> ·
         <a href="/brand">Brand</a>
       </span>
       </div>
     </footer>
+
+    <!-- Keyboard-only local search (Cmd/Ctrl+K, /) — no navbar search box. -->
+    <HomeSearch />
 
   </div>
 </template>
