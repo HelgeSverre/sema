@@ -130,9 +130,13 @@ need a span-attribute or a dedicated export path).
    it in another (e.g. request lifecycle across callbacks). Risky in a GC'd lang.
    Options: (a) scoped-only (safest); (b) a handle object with an explicit `(otel/end h)`
    + a finalizer backstop; (c) defer. (Recommend: scoped-only for v1; revisit handles.)
-3. **Typed-span vocabulary.** Which typed helpers earn their keep? LLM/generation +
-   tool + retrieval are clearly valuable (RAG). Agent/chain/reranker/guardrail? (Decide
-   from the competitive research — OpenInference span kinds vs gen_ai operation names.)
+3. **Typed-span vocabulary.** RESOLVED by the competitive research
+   (`2026-06-22-otel-competitive-roadmap.md`): the valuable typed helpers are
+   **LLM/generation, tool, retrieval, embedding** (OpenInference's high-signal kinds);
+   agent is auto-emitted already; reranker/guardrail/evaluator have no Sema concept —
+   skip. Each typed helper should ALSO emit the compat `openinference.span.kind` /
+   `traceloop.span.kind` when `SEMA_OTEL_COMPAT` is set, so user spans render natively
+   in Phoenix/Traceloop just like the built-ins.
 4. **Scores/evals.** Is auto/manual score emission in scope, or a separate "evals"
    feature? It overlaps the deferred evals item in IDEAS.md.
 5. **Attribute namespacing.** User-supplied keys: pass through verbatim (powerful, but
@@ -156,12 +160,11 @@ need a span-attribute or a dedicated export path).
 
 ---
 
-## 5. Related trace-structure finding (separate from this API)
+## 5. Related trace-structure finding — RESOLVED (no change needed)
 
 Observed in a live multi-turn run: under `invoke_agent`, the per-round `chat` spans and
-the `execute_tool` spans are **flat siblings** (GenAI-semconv style). OpenInference
-nests the tool under the LLM span that requested it. For very long runs the flat list
-is still readable (temporal order preserved) but a nested view reads better. This is an
-**auto-instrumentation** decision (where `tool_span` attaches in `run_tool_loop`), not
-part of the Sema-native API — track separately; pending the competitive research's
-verdict on nesting conventions.
+the `execute_tool` spans are **flat siblings**. The competitive research confirms this
+is the **correct convention** — OpenInference AND OpenLLMetry also make the tool a child
+of the agent span, sibling to the LLM span (the model's tool-call *request* is not its
+own span). Langfuse rendered the long multi-turn run correctly (AGENT → GENERATION×N +
+TOOL×M in temporal order). No restructuring needed.
