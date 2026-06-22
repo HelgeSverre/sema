@@ -189,6 +189,25 @@ release re-builds the world several times. Observed leads for a future push:
 
 ---
 
+## CASS-1 — Cassette tape corpus + replay-in-CI (cassettes M4)
+
+**Deferred (revisit later) — 2026-06-22.** Cassette M1–M3 shipped in 1.23.0 (record/replay
+for `complete`/`chat`/`extract`/agents/streaming/embeddings; `with-cassette` + `llm/cassette-*`
++ env vars). M4 — making the LLM/agentic suite run keyless in CI off committed tapes — is
+unstarted. The implementation plan was archived to `docs/plans/archive/2026-06-21-llm-cassettes.md`.
+Remaining work:
+
+- **Record a tape corpus** for the playground `llm-tools` examples and the agentic test
+  suite; wire `SEMA_LLM_CASSETTE_MODE=replay` into `make test` so the suite runs green with
+  no API keys. (The keyless oracle today is the scripted `FakeProvider`; cassettes would add
+  real-response replay on top.)
+- **Open questions** carried from the plan: a `NullProvider` inner so pure-replay needs zero
+  credentials; tape versioning/migration when `ChatRequest`/`ChatResponse` shapes change (the
+  `"v":1` field is the hook); tapes beside tests (`tests/tapes/`) vs. a top-level `cassettes/`
+  (leaning beside-tests); one-tape-per-test vs. shared (leaning per-test).
+
+---
+
 ## A note on the truly long-term language design items
 
 These are not deferred — they're design questions that need a deliberate decision before any code lands. They're tracked in `docs/wip.md` (the "Wave 6c" cluster), not here.

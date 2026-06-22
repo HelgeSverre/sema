@@ -8,7 +8,8 @@ is live; folds with otel + cache + cost accounting (see `crates/sema-llm/src/cas
 tests `llm_cassette_test` / `otel_cassette_test`, docs `website/docs/llm/cassettes.md`).
 **Remaining — M4 only:** record real tapes for the playground `llm-tools` examples and
 the agentic test suite, and wire `SEMA_LLM_CASSETTE_MODE=replay` into `make test` so the
-LLM/agentic suite runs keyless in CI. (Not archived — M4 is unstarted.)
+LLM/agentic suite runs keyless in CI. **ARCHIVED 2026-06-22** (M1–M3 shipped); the
+remaining M4 work is tracked in `docs/deferred.md` (CASS-1).
 
 Implementation note vs. the sketch below: rather than a registry-swapped decorator
 provider (which fights Rust's "can't move out of `Box<dyn Trait>`" on scope exit), the
