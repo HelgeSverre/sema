@@ -394,7 +394,7 @@ sema notebook run my-project.sema-nb
 sema notebook export my-project.sema-nb -o output.md
 ```
 
-See the full [Notebook documentation](/docs/notebook.html) for details on the file format, UI features, and keyboard shortcuts.
+See the full [Notebook documentation](/docs/notebook) for details on the file format, UI features, and keyboard shortcuts.
 
 ### `sema lsp`
 
@@ -404,7 +404,7 @@ Start the Language Server Protocol (LSP) server. Communicates over stdio using t
 sema lsp
 ```
 
-Provides diagnostics, completion, hover, go-to-definition, and code lenses. See the [LSP documentation](/docs/lsp.html) for full feature details and editor setup instructions.
+Provides diagnostics, completion, hover, go-to-definition, and code lenses. See the [LSP documentation](/docs/lsp) for full feature details and editor setup instructions.
 
 ## Examples
 

@@ -3,6 +3,7 @@
   "outputDirectory": ".vitepress/dist",
   "installCommand": "npm install",
   "framework": null,
+  "cleanUrls": true,
   "redirects": [
     {
       "source": "/install.sh",

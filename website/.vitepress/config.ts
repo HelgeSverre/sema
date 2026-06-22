@@ -11,6 +11,12 @@ export default defineConfig({
   description: 'A Lisp with first-class LLM primitives, implemented in Rust.',
   appearance: 'force-dark',
 
+  // Emit extensionless URLs (/docs/stdlib/csv) as the canonical form. The build
+  // still writes csv.html files; Vercel (cleanUrls in vercel.json) serves the
+  // clean path 200 and 308-redirects the .html form to it. Keeps internal links,
+  // the sitemap, and per-page og:url/canonical (transformHead) all extensionless.
+  cleanUrls: true,
+
   // <sema-*> are web components (e.g. <sema-code-typer>), not Vue components.
   vue: {
     template: {
@@ -277,10 +283,11 @@ export default defineConfig({
     const rel = pageData.relativePath
     const img = `${SITE}/og/${ogSlug(rel)}.${OG_EXT}`
 
+    // cleanUrls: extensionless canonical paths (no .html). Index pages map to
+    // their directory; every other page is its path sans the .md extension.
     let path = rel.replace(/\.md$/, '')
     if (path === 'index') path = ''
     else if (path.endsWith('/index')) path = path.slice(0, -'/index'.length) + '/'
-    else path = `${path}.html`
     const url = `${SITE}/${path}`
 
     const title = (pageData.frontmatter?.title as string) || pageData.title
@@ -304,12 +311,15 @@ export default defineConfig({
 
     const next = head.filter(([tag, attrs]) => {
       const key = (attrs as any)?.property || (attrs as any)?.name
+      if (tag === 'link' && (attrs as any)?.rel === 'canonical') return false
       return !(tag === 'meta' && key in override)
     })
     for (const [key, content] of Object.entries(override)) {
       const attr = key.startsWith('twitter:') ? 'name' : 'property'
       next.push(['meta', { [attr]: key, content }])
     }
+    // Explicit canonical so the clean URL is the one search engines consolidate to.
+    next.push(['link', { rel: 'canonical', href: url }])
     return next
   },
 

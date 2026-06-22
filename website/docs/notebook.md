@@ -279,4 +279,4 @@ For this reason the server binds to the loopback interface (`127.0.0.1`) by defa
 
 ## CLI Reference
 
-See [`sema notebook`](/docs/cli.html#sema-notebook) in the CLI reference for all flags and options.
+See [`sema notebook`](/docs/cli#sema-notebook) in the CLI reference for all flags and options.

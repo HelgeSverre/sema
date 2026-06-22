@@ -6,7 +6,7 @@ outline: [2, 2]
 
 Sema has editor plugins for VS Code, IntelliJ IDEA, Vim/Neovim, Emacs, Helix, and Zed. All plugins provide syntax highlighting for the full standard library, special forms, keyword literals, character literals, strings, numbers, comments, and LLM primitives.
 
-Sema also includes a built-in [Language Server (LSP)](/docs/lsp.html) that provides diagnostics, completion, hover, go-to-definition, and code lenses. See the [LSP documentation](/docs/lsp.html) for setup instructions and feature details.
+Sema also includes a built-in [Language Server (LSP)](/docs/lsp) that provides diagnostics, completion, hover, go-to-definition, and code lenses. See the [LSP documentation](/docs/lsp) for setup instructions and feature details.
 
 Source code for all editor plugins is in the [`editors/`](https://github.com/HelgeSverre/sema/tree/main/editors) directory.
 
@@ -38,7 +38,7 @@ Restart VS Code after installing.
 
 ## IntelliJ IDEA
 
-Full IDE support via the [LSP4IJ](https://plugins.jetbrains.com/plugin/23257-lsp4ij) plugin, connecting to the built-in Sema [Language Server](/docs/lsp.html) for completions, diagnostics, hover docs, go-to-definition, code lenses, and more.
+Full IDE support via the [LSP4IJ](https://plugins.jetbrains.com/plugin/23257-lsp4ij) plugin, connecting to the built-in Sema [Language Server](/docs/lsp) for completions, diagnostics, hover docs, go-to-definition, code lenses, and more.
 
 ### Requirements
 
