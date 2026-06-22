@@ -231,7 +231,7 @@ messages = [{<span class="c-str">"role"</span>: <span class="c-str">"user"</span
             </li>
             <li>
               <strong>The whole language fits in context.</strong>
-              Point your agent at <a href="/llms.txt"><mark>llms.txt</mark></a> —
+              Point your agent at <a href="/docs/for-agents"><mark>one short page</mark></a> —
               where Sema diverges from the dialects it already knows, and nothing else.
               Constraints, not a textbook.
             </li>
@@ -428,7 +428,7 @@ messages = [{<span class="c-str">"role"</span>: <span class="c-str">"user"</span
             <span class="install">
             <span class="cmd-text">
               <span class="dollar">$</span>
-              <span id="i5">curl -fsSL https://sema-lang.com/llms.txt >> CLAUDE.md</span>
+              <span id="i5">curl -fsSL https://sema-lang.com/docs/for-agents.md >> CLAUDE.md</span>
             </span>
             <button class="copy" @click="copyText('i5', $event)">copy</button>
           </span>

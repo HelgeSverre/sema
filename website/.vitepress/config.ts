@@ -37,6 +37,19 @@ export default defineConfig({
         domain: 'https://sema-lang.com',
         title: 'Sema',
         description: 'A Scheme-like Lisp with first-class LLM primitives, implemented in Rust.',
+        // Surfaced at the top of llms.txt (before the table of contents): the
+        // delta-from-other-Lisps cheat sheet + a link to the full agent page.
+        details: [
+          '**Coding agents: read [Sema for LLM agents](https://sema-lang.com/docs/for-agents.md) first** — every way Sema differs from other Lisps in one short page. The essentials:',
+          '',
+          '- New functions are slash-namespaced (`file/read`, `string/split`, `regex/match?`); predicates end in `?`; conversions use `->`. Legacy Scheme string ops are kept (`string-append`).',
+          '- Only `#f` and `nil` are falsy — `0`, `""`, and the empty list are truthy.',
+          '- Lists are vector-backed (O(1) `nth`, O(n) `cons`); mutable state is `define` + `set!` (there is no `atom`/`swap!`).',
+          '- Clojure-style surface: `:keywords`, `{:k v}` maps, `[1 2 3]` vectors, `#(* % %)` lambdas, `f"...${x}"` strings, `#"regex"` literals.',
+          '- LLMs are language primitives: `llm/complete`, `deftool`/`agent/run`, `llm/extract`, cassettes, OpenTelemetry, vector store.',
+          '',
+          'The table of contents below indexes the full docs — fetch any `/docs/**/*.md` on demand, or read everything at [/llms-full.txt](https://sema-lang.com/llms-full.txt).',
+        ].join('\n'),
       }),
     ],
   },

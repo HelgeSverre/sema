@@ -8,7 +8,7 @@ This page defines the technical vocabulary used across Sema's documentation — 
 
 **Association list (alist)** — a list of pairs used as a simple key-value mapping, queried with `assoc` (uses `equal?`), `assq` (uses `eq?`, pointer/symbol equality), or `assv` (uses `eqv?`, numeric value). Each lookup returns the matching pair or `#f`. Distinct from the `map`/`hashmap` data types, and the alist `assoc` is a different function from the map `assoc` that adds a key.
 
-**Atom** — a single, non-list Sema value such as a number, string, symbol, or keyword, as opposed to a list of expressions. Note: in Clojure-family Lisps "atom" also means a mutable reference cell — Sema does not use that meaning in the language; for the mutable-cell meaning see *Atom (mutable cell)* under Concurrency.
+**Atom** — a single, non-list Sema value such as a number, string, symbol, or keyword, as opposed to a list of expressions. Note: in Clojure-family Lisps "atom" also means a mutable reference cell — Sema has no such type; use `define` + `set!` for mutable state (see *Mutable state* under Concurrency).
 
 **Begin / progn** — a sequencing form that evaluates its expressions in order and returns the last result. `progn` is an accepted Common Lisp alias.
 
@@ -472,7 +472,7 @@ This page defines the technical vocabulary used across Sema's documentation — 
 
 **Async/await implementation (VM)** — Sema's concurrency model implemented entirely in the VM: each `async`/`spawn` creates a new VM instance sharing the parent's global `Env` and function table, and a cooperative round-robin scheduler (`scheduler.rs`) runs them single-threaded until they yield. Deterministic (FIFO), so the grammar fuzzer can model order-independent async patterns. Not parallel/multithreaded.
 
-**Atom (mutable cell)** — a mutable reference cell holding a single value, read by dereferencing with `@` and updated via `swap!` (apply a function) or `reset!`. Used for in-memory mutable state (e.g. a client list or an in-memory DB) in web-server examples. This is the Clojure-style mutable cell; not the same as the *atom* scalar-value meaning in Lisp & Language Core.
+**Mutable state** — Sema has **no** Clojure-style `atom` (and no `swap!`/`reset!`). Hold mutable state in a `define`d binding and update it with `set!`. Because the runtime is single-threaded (`Rc`, not `Arc`), no atomics or locks are needed for it.
 
 **Channel** — a bounded FIFO buffer for communication and synchronization between async tasks, created with `(channel/new capacity)` (default 1, minimum 1). `channel/send` blocks (yields) when full, `channel/recv` blocks when empty and returns nil when the channel is closed and empty, `channel/close` closes it; `channel/try-recv` is non-blocking. Blocking only works inside an async task; from top level send/recv raise instead of waiting. (The web server's "channels" bridging HTTP I/O to the evaluator are a related concept at the Rust/Tokio boundary, not the Sema `channel/` API.)
 
