@@ -30,9 +30,10 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
   sema -e '(llm/complete "say hi" {:max-tokens 16})'
 ```
 
-Open <http://localhost:16686>, pick the **sema** service, and you'll see a `chat
-<model>` span with `gen_ai.provider.name`, request/response model, input/output
-tokens, `gen_ai.usage.cost`, and the finish reason.
+Open `http://localhost:16686`, pick the **sema** service, and you'll see a CLIENT span
+named `chat` plus the model (e.g. `chat claude-sonnet-4-6`) carrying
+`gen_ai.provider.name`, request/response model, input/output tokens,
+`gen_ai.usage.cost`, and the finish reason.
 
 > Pin a specific provider/model by selecting it first — e.g.
 > `(llm/set-default :openai)` then `{:model "gpt-5-mini"}`, or
