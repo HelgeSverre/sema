@@ -73,17 +73,41 @@ f"hi ${name}, ${(+ 1 2)}" ; f-string interpolation
   for locals.
 - **Tail calls are optimized** — deep recursion in tail position won't overflow.
 
+## LLM providers (configure one first)
+
+LLM calls need a provider, and **Sema auto-configures every provider it finds an API key
+for** in the environment on startup — so the only setup is exporting a key:
+
+| Provider | Env var | Default model |
+| --- | --- | --- |
+| Anthropic | `ANTHROPIC_API_KEY` | `claude-sonnet-4-6` |
+| OpenAI | `OPENAI_API_KEY` | `gpt-5.5` |
+| Google Gemini | `GOOGLE_API_KEY` | `gemini-3.5-flash` |
+| Groq · xAI · Mistral · Moonshot | `GROQ_API_KEY` · `XAI_API_KEY` · `MISTRAL_API_KEY` · `MOONSHOT_API_KEY` | per provider |
+| Ollama (local, no key) | `OLLAMA_HOST` (default `localhost:11434`) | `gemma4` |
+
+The first configured provider becomes the default. Switch at runtime with
+`(llm/set-default :openai)`, force one via `SEMA_CHAT_PROVIDER` / `SEMA_CHAT_MODEL`, or check
+the active one with `(llm/current-provider)`. Embeddings use their own providers
+(Jina / Voyage / Cohere — see `/docs/llm/embeddings.md`).
+
+> **The #1 first stumble:** a pinned `:model` must belong to the **active** provider.
+> `(llm/complete "hi" {:model "gpt-5.5"})` fails with a 404 if Anthropic is the default —
+> switch first with `(llm/set-default :openai)`. The simplest call **omits `:model`** and
+> uses the active provider's default model.
+
 ## What's unique to Sema (why it exists)
 
 LLM/agent operations are language primitives, not a bolted-on SDK:
 
 ```sema
-(llm/complete "Summarize this." {:model "gpt-5-mini" :max-tokens 100})
+;; With an API key in the env this just works — no :model means "active provider's default":
+(llm/complete "Summarize this in one sentence." {:max-tokens 100})
 
 (deftool get-weather "Get weather" {:city {:type :string}}
   (lambda (city) (format "{\"temp\": 22}")))
-(define bot (agent {:model "gpt-5-mini" :tools [get-weather]}))
-(agent/run bot "Weather in Oslo?")        ; multi-turn tool loop
+(define bot (agent {:tools [get-weather]}))   ; omit :model to use the default
+(agent/run bot "Weather in Oslo?")            ; multi-turn tool loop
 ```
 
 - **Prompts/messages/conversations** are first-class immutable values (`prompt`, `message`,
