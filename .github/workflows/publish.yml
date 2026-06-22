@@ -64,6 +64,7 @@ jobs:
           publish sema-core
           publish sema-reader
           publish sema-vm
+          publish sema-otel
           publish sema-llm
           publish sema-stdlib
           publish sema-eval
