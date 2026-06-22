@@ -5,7 +5,7 @@ outline: [2, 3]
 # Backend Compatibility
 
 By default Sema labels its telemetry with the
-[OpenTelemetry GenAI semantic conventions](https://github.com/open-telemetry/semantic-conventions/tree/main/docs/gen-ai)
+[OpenTelemetry GenAI semantic conventions](https://github.com/open-telemetry/semantic-conventions-genai)
 — the standard `gen_ai.*` attribute names. Tools that follow that standard understand
 Sema's traces with no extra configuration.
 

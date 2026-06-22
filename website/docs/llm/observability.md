@@ -19,7 +19,7 @@ If OpenTelemetry is new to you, the terms used below:
   that accepts it — a free local viewer like [Jaeger](https://www.jaegertracing.io/), or
   a hosted service like [Langfuse](https://langfuse.com/), Grafana, or Datadog.
 - Sema follows the OTel
-  [GenAI semantic conventions](https://github.com/open-telemetry/semantic-conventions/tree/main/docs/gen-ai)
+  [GenAI semantic conventions](https://github.com/open-telemetry/semantic-conventions-genai)
   — the agreed attribute names for LLM telemetry (token counts, model, cost, …) — so
   these tools understand the data with no per-tool glue. Grafana, Jaeger, SigNoz,
   OpenObserve, Datadog, Honeycomb, Logfire, MLflow, and others read it as-is; a few
