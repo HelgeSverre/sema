@@ -12,5 +12,8 @@
     "playwright": "1.60.0",
     "vitepress": "2.0.0-alpha.17",
     "vitepress-plugin-llms": "^1.13.2"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
   }
 }
