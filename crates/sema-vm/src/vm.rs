@@ -947,6 +947,11 @@ impl VM {
         ctx: &EvalContext,
         debug: &mut crate::debug::DebugState,
     ) -> Result<crate::debug::VmExecResult, SemaError> {
+        // A fresh session has no paused async task. Clear any id left over from a
+        // PRIOR session that was abandoned (Stop) while paused inside a task, so a
+        // stale id can never misroute this session's inspection to an unrelated
+        // task that happens to reuse it. (Resume clears it on the normal path.)
+        clear_coop_paused_task_id();
         self.ensure_cache_space(&closure.func);
         let base = self.stack.len();
         let n_locals = closure.func.chunk.n_locals as usize;
