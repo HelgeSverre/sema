@@ -174,6 +174,31 @@ Map `f` over `items` with **bounded concurrency**: at most `n` calls run at once
 (async/pool-map (fn (u) (http/get u)) urls 16)
 ```
 
+### `async/map`
+
+```sema
+(async/map f items) → list
+```
+
+Concurrent `map`: apply `f` to each item in its **own** task, results in input order. The unbounded sibling of `async/pool-map` (no cap — every item gets a task at once). Use `async/pool-map` when you need to limit how many run together.
+
+```sema
+(async/map (fn (u) (http/get u)) urls)        ; fetch every url concurrently
+(async/map (fn (i) (* i i)) '(1 2 3 4))       ; => (1 4 9 16)
+```
+
+### `async/spawn-all`
+
+```sema
+(async/spawn-all thunks) → list
+```
+
+Spawn a list of zero-arg functions concurrently and await them all, in input order — the ergonomic form of `(async/all (map (fn (th) (async/spawn th)) thunks))`.
+
+```sema
+(async/spawn-all (list (fn () (http/get a)) (fn () (http/get b))))
+```
+
 ## Concurrent I/O — what actually overlaps
 
 The scheduler's payoff is **latency overlap**: when several tasks each wait on I/O, the waits happen *simultaneously* instead of one after another. The blocking leaves below now yield to the scheduler while their work runs on a background runtime, so spawning them as tasks (via `async/spawn` + `async/all`, or `async/pool-map`) makes wall-clock approach `max(latency)` instead of `sum(latency)`:
@@ -194,6 +219,8 @@ The scheduler's payoff is **latency overlap**: when several tasks each wait on I
 ```
 
 Outside a scheduler task (a plain top-level call) these run **synchronously**, byte-identical to before — the concurrency only engages inside `async`/`async/spawn`. Tasks still interleave at I/O boundaries on the single VM thread; this is cooperative concurrency, not parallel CPU execution.
+
+**Tracing nests across spawns.** Spans (`with-span`, the auto-instrumented `llm/*` spans) opened inside a spawned task nest under the spawning task's active span and share its trace — so `(with-span "batch" (async/map llm/complete prompts))` shows up as one connected tree in Jaeger/Phoenix/Langfuse (the `batch` span with the concurrent LLM spans beneath it), not a pile of disconnected single-span traces. Each task still keeps its own span stack, so concurrent spans never cross-contaminate. A spawn at the top level (no active span) starts its own trace.
 
 ## Channels
 

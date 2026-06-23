@@ -17,6 +17,16 @@
   over `items` with at most `n` calls in flight, results in input order. Fan a large batch
   (embeddings, fetches, completions) across a rate-limited resource without launching
   everything at once.
+- **`async/map` and `async/spawn-all`** — ergonomic unbounded fan-out. `(async/map f items)`
+  is a concurrent `map` (a task per item, results in input order); `(async/spawn-all thunks)`
+  spawns a list of zero-arg thunks and awaits them all. Both are the obvious sugar over
+  `(async/all (map #(async/spawn …) …))`; reach for `async/pool-map` when you need a cap.
+- **Nested-trace propagation across `async/spawn`.** Spans opened inside a spawned task now
+  nest under the spawning task's active span and share its trace, so
+  `(with-span … (async/map …))` (or any nested async) renders as ONE connected trace tree in
+  Jaeger/Phoenix/Langfuse instead of fragmenting into N disconnected single-span traces. A
+  top-level spawn (no active span) still starts its own trace, so independent top-level tasks
+  stay isolated.
 - **True cancellation.** `async/cancel` and `async/timeout` now **abort in-flight I/O** for
   real where the runtime allows: a cancelled/timed-out `http/*` request tears down its
   connection, and a `shell` subprocess is **killed** (`SIGKILL`) instead of running to
