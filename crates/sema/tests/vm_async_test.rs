@@ -18,6 +18,28 @@ fn async_spawn_await() {
     );
 }
 
+// === Regression: a task spawned before an outermost scheduler exit survives ===
+//
+// A task spawned in one top-level form, with an intervening `(async/all …)` on a
+// DIFFERENT task (an outermost scheduler exit), then awaited in a later form, must
+// still be alive when awaited. The adversarial-#7 reaping fix originally cleared
+// ALL leftover tasks at the outermost exit, which wrongly killed `p` here and broke
+// `examples/async-pipeline.sema` / `async-stress.sema` with "async/await: still
+// pending after scheduler run". The reap is now terminal-only.
+#[test]
+fn task_survives_intervening_outermost_scheduler_exit() {
+    assert_eq!(
+        eval(
+            r#"
+            (define p (async/spawn (fn () (async/sleep 100) 42)))
+            (async/all (list (async/spawn (fn () 1))))
+            (await p)
+            "#
+        ),
+        Value::int(42)
+    );
+}
+
 // === async special form ===
 
 #[test]

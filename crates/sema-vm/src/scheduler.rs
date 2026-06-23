@@ -253,23 +253,52 @@ impl Scheduler {
         }
     }
 
-    /// Drop every task the scheduler is still holding.
+    /// Prune only TERMINAL (Done / Failed) tasks the scheduler is still holding.
     ///
     /// Called at the OUTERMOST scheduler exit (control returning to non-async
-    /// Sema code), where any leftover task is genuinely abandoned: there is no
-    /// surviving awaiter and the next top-level eval starts a fresh run. Dropping
-    /// them HERE — on the VM thread, while the OTel thread-locals are still alive —
-    /// is what prevents a span-owning `IoHandle` (e.g. an `llm/embed` abandoned by
-    /// `async/timeout`) from surviving to thread/process teardown, where its
-    /// detached `LlmSpan` would call `span.end()` against a destructed thread-local
-    /// and abort the process (adversarial #7).
+    /// Sema code). It must NOT clear still-pending tasks: a task spawned in one
+    /// top-level form and awaited in a LATER one (e.g. a pipeline `collector`
+    /// spawned before an `(async/all …)` of the other stages, then `(await
+    /// collector)`) is legitimately held across this boundary — clearing it broke
+    /// those programs with "async/await: still pending after scheduler run".
     ///
-    /// Tasks of a still-active NESTED run are never touched: this only runs when
-    /// the caller is returning to a non-async context (see `run_scheduler_callback`).
-    /// After a normal `(async/all …)` the scheduler holds no tasks, so this is a
-    /// no-op there.
+    /// Reaping terminal tasks HERE — on the VM thread, while the OTel
+    /// thread-locals are still alive — is what prevents a span-owning `IoHandle`
+    /// (e.g. an `llm/embed` abandoned by `async/timeout`) from surviving to
+    /// thread/process teardown, where its detached `LlmSpan` would call
+    /// `span.end()` against a destructed thread-local and abort the process
+    /// (adversarial #7). The companion to this is `cancel_promise_task`, which the
+    /// timeout-expiry path calls to TRANSITION the abandoned task to `Failed`
+    /// (dropping its span-owning `IoHandle` right then) so this prune can collect
+    /// it. A still-pending, still-reachable task is kept.
     fn reap_leftover_tasks(&mut self) {
-        self.tasks.clear();
+        self.tasks
+            .retain(|t| !matches!(t.state, TaskState::Done | TaskState::Failed));
+    }
+
+    /// Cancel the task whose promise is `target` — the victim of an
+    /// `async/timeout` that just expired (or an `async/cancel`). Transition it to
+    /// a terminal `Failed`/`Cancelled` state NOW, on the VM thread while the OTel
+    /// thread-locals are alive, so its `Blocked(AwaitIo(handle))` reason is
+    /// dropped here: the `IoHandle` (which may own a detached `LlmSpan`) ends its
+    /// span at this point instead of surviving to teardown (adversarial #7). The
+    /// in-flight offloaded future is left to run to completion and discard its
+    /// result (best-effort cancel; a true socket/process abort is a separate
+    /// slice). No-op if the task already settled or no such task exists.
+    fn cancel_promise_task(&mut self, target: &Rc<AsyncPromise>) {
+        if let Some(task) = self
+            .tasks
+            .iter_mut()
+            .find(|t| Rc::ptr_eq(&t.promise, target))
+        {
+            if !matches!(task.state, TaskState::Done | TaskState::Failed) {
+                task.cancelled = true;
+                *task.promise.state.borrow_mut() = PromiseState::Cancelled;
+                // Reassigning `state` drops the previous `Blocked(AwaitIo(handle))`,
+                // dropping the `IoHandle` and ending any detached span it owns.
+                task.state = TaskState::Failed;
+            }
+        }
     }
 
     /// Mark a task as cancelled and transition its promise into `Cancelled`.
@@ -423,13 +452,16 @@ fn run_scheduler_callback(
     // `async/all`, `async/any`, `async/run` and `async/timeout` — all of which
     // only call it when NOT already in an async context (otherwise they
     // `set_yield_signal` and let the running scheduler resume them). So reaching
-    // here means we are the OUTERMOST run returning to non-async Sema code: any
-    // task the scheduler still holds is abandoned (a timed-out / un-awaited
-    // sibling parked on `AwaitIo` etc.). Reap them now, on the VM thread, while
-    // the OTel thread-locals are still alive — never leaving a span-owning
-    // `IoHandle` to drop at teardown (adversarial #7). The nested HOF-callback
-    // run (`run_closure_as_inline_task`) goes through a different path and is
-    // gated by `in_async_context()` being true, so it is never reaped here.
+    // here means we are the OUTERMOST run returning to non-async Sema code. Prune
+    // only TERMINAL tasks now, on the VM thread, while the OTel thread-locals are
+    // still alive — so a span-owning `IoHandle` left by a timed-out task (which
+    // the timeout-expiry path has just transitioned to `Failed` via
+    // `cancel_promise_task`) is collected here instead of dropping at teardown
+    // (adversarial #7). Still-pending tasks are KEPT: one spawned in an earlier
+    // top-level form and awaited in a later one (e.g. a streaming-pipeline
+    // `collector`) is reachable across this boundary and must survive. The nested
+    // HOF-callback run (`run_closure_as_inline_task`) goes through a different
+    // path and is gated by `in_async_context()` being true, so it is untouched.
     if !sema_core::in_async_context() {
         sched.reap_leftover_tasks();
     }
@@ -685,6 +717,9 @@ fn run_until_reentrant(
                     // reached the `async/timeout` deadline with the target still
                     // pending, the operation has timed out (#3).
                     if goal.sleep_limit().is_some_and(|dl| sched.virtual_now >= dl) {
+                        if let SchedulerTarget::Timeout(p, _) = target {
+                            sched.cancel_promise_task(p);
+                        }
                         return Ok(SchedulerRunResult::TimedOut);
                     }
                     continue;
@@ -728,6 +763,9 @@ fn run_until_reentrant(
                     // `status`) so a 0 ms timeout still lets synchronously-ready
                     // work finish before this point is ever reached.
                     if goal.sleep_limit().is_some_and(|dl| sched.virtual_now >= dl) {
+                        if let SchedulerTarget::Timeout(p, _) = target {
+                            sched.cancel_promise_task(p);
+                        }
                         return Ok(SchedulerRunResult::TimedOut);
                     }
                     continue; // Re-check: wake sleepers / make progress.
