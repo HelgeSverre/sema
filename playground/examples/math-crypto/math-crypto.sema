@@ -58,3 +58,14 @@
     (string/pad-right (format "\"~a\"" input) 15)
     (string/slice (hash/sha256 input) 0 16))))
   (list "" "hello" "Hello" "Sema"))
+
+;; Scientific notation — floats as <mantissa>e<exponent> (e/E, optional sign),
+;; handy for very large/small magnitudes like physical constants.
+(println "\nScientific notation:")
+(for-each (fn (pair)
+  (println (format "  ~a = ~a"
+    (string/pad-right (first pair) 24) (nth pair 1))))
+  (list (list "Avogadro  6.022e23" 6.022e23)
+        (list "Planck    6.626e-34" 6.626e-34)
+        (list "c (m/s)   2.998e8" 2.998e8)
+        (list "(* 2 3e2)" (* 2 3e2))))

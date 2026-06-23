@@ -11,7 +11,7 @@ Sema has a rich set of built-in data types covering numbers, text, collections, 
 | Type         | Syntax               | Examples                                                           |
 | ------------ | -------------------- | ------------------------------------------------------------------ |
 | Integer      | digits               | `42`, `-7`, `0`                                                    |
-| Float        | digits with `.`      | `3.14`, `-0.5`, `0.001`                                            |
+| Float        | `.` or exponent      | `3.14`, `-0.5`, `0.001`, `6.022e23`, `1e-9`                        |
 | String       | double-quoted        | `"hello"`, `"line\nbreak"`, `"\x1B;"`                              |
 | F-String     | `f"...${expr}..."` | `f"Hello ${name}"`, `f"${(+ 1 2)}"`                               |
 | Boolean      | `#t` / `#f`          | `#t`, `#f`                                                         |
@@ -48,13 +48,27 @@ Whole numbers. Standard arithmetic applies.
 
 ### Float
 
-Floating-point numbers with a decimal point.
+Floating-point numbers, written with a decimal point and/or a scientific
+(exponent) suffix `e`/`E`:
 
 ```sema
 3.14
 -0.5
 0.001
+
+;; Scientific notation — <mantissa>e<exponent>, with an optional sign on the
+;; exponent. The mantissa may be a bare integer (no decimal point required).
+6.022e23     ;; Avogadro's number  → 6.022 × 10²³
+1.0e19       ;; 10000000000000000000.0
+1e-9         ;; one nano  → 0.000000001
+-2.5E6       ;; uppercase E works too → -2500000.0
+(* 2 3e2)    ;; usable anywhere a number is → 600.0
 ```
+
+A literal whose magnitude exceeds `f64` range follows IEEE-754 (`1e400` → `inf`,
+`1e-400` → `0.0`). Note that an `e`/`E` not immediately followed by (an optional
+sign and) digits is *not* part of a number — `1e` reads as the integer `1` and a
+separate symbol `e` — so identifiers like `e` or `exp` are never mis-parsed.
 
 ### String
 

@@ -62,6 +62,23 @@ eval_error_tests! {
     destructure_err_non_map: "(let (({:keys [x]} '(1 2))) x)" => "expected map",
 }
 
+// Scientific / exponential number literals (LEX-1).
+eval_tests! {
+    sci_float_literal: "1.0e19" => Value::float(1e19),
+    sci_bare_exponent: "1e6" => Value::float(1e6),
+    sci_uppercase_e: "1E10" => Value::float(1e10),
+    sci_negative_exponent: "2e-3" => Value::float(0.002),
+    sci_signed_plus_exponent: "6.022e+23" => Value::float(6.022e23),
+    sci_in_expression: "(* 2 3e2)" => Value::float(600.0),
+    sci_int_conversion: "(int 1.5e3)" => Value::int(1500),
+}
+
+eval_error_tests! {
+    // `1.0e19` parses (else the error would be "Unbound variable: e19"), then
+    // overflows i64 — the error mentions `int`.
+    sci_int_overflow: "(int 1.0e19)" => "int",
+}
+
 // ============================================================
 // Pattern Matching
 // ============================================================

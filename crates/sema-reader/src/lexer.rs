@@ -806,6 +806,13 @@ mod tests {
     #[test]
     fn test_scientific_notation_literals() {
         let first = |src: &str| tokenize(src).unwrap().into_iter().next().unwrap().token;
+        let toks = |src: &str| -> Vec<Token> {
+            tokenize(src)
+                .unwrap()
+                .into_iter()
+                .map(|t| t.token)
+                .collect()
+        };
         // Exponent forms parse as Float (f64::parse handles the string once consumed).
         assert_eq!(first("1.0e19"), Token::Float(1e19));
         assert_eq!(first("1e19"), Token::Float(1e19)); // bare exponent (no fraction)
@@ -813,16 +820,40 @@ mod tests {
         assert_eq!(first("2e-5"), Token::Float(2e-5)); // signed (negative) exponent
         assert_eq!(first("6.022e+23"), Token::Float(6.022e23)); // explicit + sign
         assert_eq!(first("1E10"), Token::Float(1e10)); // uppercase E
-        assert_eq!(first("-1.5e3"), Token::Float(-1500.0)); // negative mantissa
+        assert_eq!(first("1E+10"), Token::Float(1e10)); // uppercase E + sign
+        assert_eq!(first("1E-10"), Token::Float(1e-10));
+        assert_eq!(first("-1.5e3"), Token::Float(-1500.0)); // negative mantissa + fraction
+        assert_eq!(first("-2e3"), Token::Float(-2000.0)); // negative bare-int mantissa
+        assert_eq!(first("-1e-3"), Token::Float(-1e-3)); // negative mantissa AND exponent
+                                                         // Out-of-range exponents follow IEEE-754 / `f64::parse` (matches the lexer
+                                                         // already accepting `inf`/`nan` literals): overflow → inf, underflow → 0.0.
+        assert_eq!(first("1e400"), Token::Float(f64::INFINITY));
+        assert_eq!(first("1e-400"), Token::Float(0.0));
         // Plain integers/floats are unaffected.
         assert_eq!(first("42"), Token::Int(42));
         assert_eq!(first("1.5"), Token::Float(1.5));
         assert_eq!(first("-7"), Token::Int(-7));
+        // The returned consumed-length must be exact (the caller advances i/col/byte
+        // offsets by it): a number resumes correct tokenization of what follows, both
+        // with a separating space and immediately against a delimiter.
+        assert_eq!(toks("1e5 2"), vec![Token::Float(1e5), Token::Int(2)]);
+        assert_eq!(
+            toks("(f 1e5)"),
+            vec![
+                Token::LParen,
+                Token::Symbol("f".to_string()),
+                Token::Float(1e5),
+                Token::RParen,
+            ]
+        );
         // Guards: an `e`/`E` not followed by (sign+)digits is NOT consumed — `1e`
-        // is Int(1) plus a separate `e` symbol, and a bare `e19` identifier stays a
+        // is Int(1) plus a separate symbol, and a bare `e19` identifier stays a
         // symbol, so existing code using `e…` names is unaffected.
         assert_eq!(first("1e"), Token::Int(1));
+        assert_eq!(toks("1e").len(), 2);
+        assert!(matches!(&toks("1e")[1], Token::Symbol(s) if s == "e"));
         assert_eq!(first("1e+"), Token::Int(1));
+        assert!(matches!(&toks("1e+")[1], Token::Symbol(_))); // leftover `e+` is a symbol
         assert!(matches!(first("e19"), Token::Symbol(s) if s == "e19"));
     }
 
