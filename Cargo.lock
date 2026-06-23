@@ -3032,7 +3032,7 @@ dependencies = [
 
 [[package]]
 name = "sema-core"
-version = "1.26.0"
+version = "1.27.0"
 dependencies = [
  "hashbrown 0.17.1",
  "lasso",
@@ -3043,7 +3043,7 @@ dependencies = [
 
 [[package]]
 name = "sema-dap"
-version = "1.26.0"
+version = "1.27.0"
 dependencies = [
  "sema-core",
  "sema-eval",
@@ -3056,7 +3056,7 @@ dependencies = [
 
 [[package]]
 name = "sema-docs"
-version = "1.26.0"
+version = "1.27.0"
 dependencies = [
  "clap",
  "serde",
@@ -3066,7 +3066,7 @@ dependencies = [
 
 [[package]]
 name = "sema-eval"
-version = "1.26.0"
+version = "1.27.0"
 dependencies = [
  "sema-core",
  "sema-llm",
@@ -3077,7 +3077,7 @@ dependencies = [
 
 [[package]]
 name = "sema-fmt"
-version = "1.26.0"
+version = "1.27.0"
 dependencies = [
  "sema-core",
  "sema-reader",
@@ -3085,7 +3085,7 @@ dependencies = [
 
 [[package]]
 name = "sema-lang"
-version = "1.26.0"
+version = "1.27.0"
 dependencies = [
  "clap",
  "clap_complete",
@@ -3132,7 +3132,7 @@ dependencies = [
 
 [[package]]
 name = "sema-llm"
-version = "1.26.0"
+version = "1.27.0"
 dependencies = [
  "base64",
  "futures",
@@ -3148,7 +3148,7 @@ dependencies = [
 
 [[package]]
 name = "sema-lsp"
-version = "1.26.0"
+version = "1.27.0"
 dependencies = [
  "sema-core",
  "sema-docs",
@@ -3164,7 +3164,7 @@ dependencies = [
 
 [[package]]
 name = "sema-mcp"
-version = "1.26.0"
+version = "1.27.0"
 dependencies = [
  "crc32fast",
  "sema-core",
@@ -3181,7 +3181,7 @@ dependencies = [
 
 [[package]]
 name = "sema-notebook"
-version = "1.26.0"
+version = "1.27.0"
 dependencies = [
  "axum",
  "chrono",
@@ -3196,7 +3196,7 @@ dependencies = [
 
 [[package]]
 name = "sema-otel"
-version = "1.26.0"
+version = "1.27.0"
 dependencies = [
  "libc",
  "opentelemetry",
@@ -3210,7 +3210,7 @@ dependencies = [
 
 [[package]]
 name = "sema-reader"
-version = "1.26.0"
+version = "1.27.0"
 dependencies = [
  "proptest",
  "sema-core",
@@ -3218,7 +3218,7 @@ dependencies = [
 
 [[package]]
 name = "sema-stdlib"
-version = "1.26.0"
+version = "1.27.0"
 dependencies = [
  "axum",
  "base64",
@@ -3254,7 +3254,7 @@ dependencies = [
 
 [[package]]
 name = "sema-vm"
-version = "1.26.0"
+version = "1.27.0"
 dependencies = [
  "hashbrown 0.17.1",
  "lasso",
@@ -3264,7 +3264,7 @@ dependencies = [
 
 [[package]]
 name = "sema-wasm"
-version = "1.26.0"
+version = "1.27.0"
 dependencies = [
  "getrandom 0.4.2",
  "js-sys",
