@@ -42,8 +42,15 @@ pub trait LlmProvider: Send + Sync {
 }
 
 /// Registry of providers by name, plus a separate embedding provider slot.
+///
+/// Providers are stored as `Arc<dyn LlmProvider>` (the trait is `Send + Sync`)
+/// so the VM thread can clone an `Arc` out of the thread-local registry, release
+/// the borrow, and move it into a `spawn_blocking` future on the shared runtime —
+/// the offloaded worker then calls the provider's own `complete`/`embed` with no
+/// re-implementation. An `Arc<dyn LlmProvider>` derefs to `&dyn LlmProvider`, so
+/// all synchronous `with_*_provider` callers keep working unchanged.
 pub struct ProviderRegistry {
-    providers: std::collections::HashMap<String, Box<dyn LlmProvider>>,
+    providers: std::collections::HashMap<String, std::sync::Arc<dyn LlmProvider>>,
     default: Option<String>,
     embedding_provider: Option<String>,
     rerank_provider: Option<String>,
@@ -59,7 +66,12 @@ impl ProviderRegistry {
         }
     }
 
+    /// Register a provider. Takes a `Box<dyn LlmProvider>` (so existing
+    /// `register(Box::new(p))` call sites unsize-coerce as before) and stores it
+    /// as an `Arc` (`Arc<T>: From<Box<T>>` for unsized `T`) so callers can later
+    /// clone a `Send + Sync` handle out of the registry.
     pub fn register(&mut self, provider: Box<dyn LlmProvider>) {
+        let provider: std::sync::Arc<dyn LlmProvider> = std::sync::Arc::from(provider);
         let name = provider.name().to_string();
         if self.default.is_none() {
             self.default = Some(name.clone());
@@ -67,15 +79,15 @@ impl ProviderRegistry {
         self.providers.insert(name, provider);
     }
 
-    pub fn get(&self, name: &str) -> Option<&dyn LlmProvider> {
-        self.providers.get(name).map(|p| p.as_ref())
+    pub fn get(&self, name: &str) -> Option<std::sync::Arc<dyn LlmProvider>> {
+        self.providers.get(name).cloned()
     }
 
-    pub fn default_provider(&self) -> Option<&dyn LlmProvider> {
+    pub fn default_provider(&self) -> Option<std::sync::Arc<dyn LlmProvider>> {
         self.default
             .as_ref()
             .and_then(|name| self.providers.get(name))
-            .map(|p| p.as_ref())
+            .cloned()
     }
 
     pub fn set_default(&mut self, name: &str) {
@@ -88,11 +100,11 @@ impl ProviderRegistry {
         self.embedding_provider = Some(name.to_string());
     }
 
-    pub fn embedding_provider(&self) -> Option<&dyn LlmProvider> {
+    pub fn embedding_provider(&self) -> Option<std::sync::Arc<dyn LlmProvider>> {
         self.embedding_provider
             .as_ref()
             .and_then(|name| self.providers.get(name))
-            .map(|p| p.as_ref())
+            .cloned()
     }
 
     pub fn set_rerank_provider(&mut self, name: &str) {
@@ -100,11 +112,11 @@ impl ProviderRegistry {
     }
 
     /// The default rerank provider (last rerank-capable provider registered).
-    pub fn rerank_provider(&self) -> Option<&dyn LlmProvider> {
+    pub fn rerank_provider(&self) -> Option<std::sync::Arc<dyn LlmProvider>> {
         self.rerank_provider
             .as_ref()
             .and_then(|name| self.providers.get(name))
-            .map(|p| p.as_ref())
+            .cloned()
     }
 
     pub fn provider_names(&self) -> Vec<String> {

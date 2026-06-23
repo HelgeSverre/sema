@@ -208,7 +208,7 @@ where
                     .to_string(),
             )
         })?;
-        f(provider)
+        f(&*provider)
     })
 }
 
@@ -227,7 +227,7 @@ where
                         .to_string(),
                 )
             })?;
-        f(provider)
+        f(&*provider)
     })
 }
 
@@ -266,7 +266,7 @@ where
                     )
                 })?,
         };
-        f(provider)
+        f(&*provider)
     })
 }
 
@@ -5209,7 +5209,7 @@ fn do_complete_with_provider(
             request.model = provider.default_model().to_string();
         }
         let max_retries = NETWORK_MAX_RETRIES.with(|c| c.get());
-        let resp = complete_with_retry(provider, &request, max_retries)
+        let resp = complete_with_retry(&*provider, &request, max_retries)
             .map_err(|e| SemaError::Llm(e.to_string()))?;
         set_serving_provider(&entry.provider);
         // Provider + model + response are all in scope here, before track_usage
@@ -5275,7 +5275,7 @@ fn stream_one_provider(
         } else if request.model.is_empty() {
             request.model = provider.default_model().to_string();
         }
-        let resp = stream_with_cassette(provider, request, chunk_cb, span)?;
+        let resp = stream_with_cassette(&*provider, request, chunk_cb, span)?;
         set_serving_provider(&entry.provider);
         Ok(resp)
     })
