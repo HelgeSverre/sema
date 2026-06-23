@@ -1,0 +1,153 @@
+//! Gate: breakpoints fire INSIDE async tasks under the native DAP debugger.
+//!
+//! Root cause (pre-fix): breakpoint/step checking only runs in
+//! `VM::run_inner(ctx, Some(debug))`, but the cooperative scheduler steps every
+//! async task via the NON-debug `execute_async`/`run_async` path, so a breakpoint
+//! on a line that executes only inside `(async/spawn (fn () …))` is silently
+//! skipped. See `docs/bugs/async-breakpoints.md` /
+//! `docs/plans/2026-06-23-async-debugger.md`.
+//!
+//! This is a fast MECHANISM-level test (it drives `VM::execute_debug` directly,
+//! NOT the slow binary-protocol DAP harness). It mirrors the DAP run setup in
+//! `crates/sema-dap/src/server.rs`: read_many_with_spans → compile_program_with_spans
+//! → DebugState::new + set_valid_breakpoint_lines + set breakpoint → init_scheduler
+//! → execute_debug on a spawned thread (it blocks on command_rx at a stop).
+
+#![cfg(not(target_arch = "wasm32"))]
+
+use std::path::PathBuf;
+use std::sync::mpsc;
+use std::time::Duration;
+
+use sema_eval::Interpreter;
+use sema_vm::{DebugCommand, DebugEvent, DebugState, StopReason, VM};
+
+/// Compile `source` (attributing spans to `path`), build a VM + DebugState with a
+/// breakpoint on `bp_line`, and run it on a spawned thread. Returns the receiver
+/// half of the event channel and the command sender so the test thread can drive
+/// the stop/resume handshake, plus the join handle for the run.
+struct DebugRun {
+    event_rx: mpsc::Receiver<DebugEvent>,
+    cmd_tx: mpsc::Sender<DebugCommand>,
+    handle: std::thread::JoinHandle<Result<(), String>>,
+}
+
+fn start_debug_run(source: &str, path: &PathBuf, bp_line: u32) -> DebugRun {
+    // VM → frontend events, frontend → VM commands.
+    let (event_tx, event_rx) = mpsc::channel::<DebugEvent>();
+    let (cmd_tx, cmd_rx) = mpsc::channel::<DebugCommand>();
+
+    // Everything that touches the `Rc`-laden VM/Interpreter must be built and run
+    // on the SAME thread (those types are `!Send`). So we move only the `Send`
+    // inputs (source, path, channel halves) into the spawned thread and do the
+    // full DAP-style setup there. execute_debug blocks on command_rx at each stop,
+    // so it must run off the test thread regardless.
+    let source = source.to_string();
+    let path = path.clone();
+    let handle = std::thread::spawn(move || -> Result<(), String> {
+        let (vals, span_map) =
+            sema_reader::read_many_with_spans(&source).map_err(|e| e.to_string())?;
+        let prog = sema_vm::compile_program_with_spans(&vals, &span_map, Some(path.clone()))
+            .map_err(|e| e.to_string())?;
+
+        let interpreter = Interpreter::new();
+
+        let mut ds = DebugState::new(event_tx, cmd_rx);
+        ds.set_valid_breakpoint_lines(sema_vm::valid_breakpoint_lines_by_file(
+            &prog.closure,
+            &prog.functions,
+        ));
+        let resolved = ds.set_breakpoints(&path, &[bp_line]);
+        if !resolved.iter().any(|bp| bp.verified) {
+            return Err(format!(
+                "breakpoint on line {bp_line} did not resolve: {resolved:?}"
+            ));
+        }
+
+        let mut vm = VM::new(
+            interpreter.global_env.clone(),
+            prog.functions,
+            &[],
+            prog.main_cache_slots,
+        )
+        .map_err(|e| e.to_string())?;
+
+        // Async scheduler must be live so async/spawn + await work under debug.
+        sema_vm::init_scheduler(interpreter.global_env.clone(), Vec::new());
+
+        vm.execute_debug(prog.closure.clone(), &interpreter.ctx, &mut ds)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    });
+
+    DebugRun {
+        event_rx,
+        cmd_tx,
+        handle,
+    }
+}
+
+/// Control case: a breakpoint on a SYNCHRONOUS top-level line stops. Proves the
+/// harness is valid (so a failure of the async case is a real gap, not a broken
+/// test).
+#[test]
+fn sync_breakpoint_stops() {
+    let dir = std::env::temp_dir().join(format!("sema-dap-sync-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("sync.sema");
+    let source = "(define x 1)\n(define y (+ x 2))\n(+ x y)\n";
+    std::fs::write(&path, source).unwrap();
+    let path = std::fs::canonicalize(&path).unwrap();
+
+    // Breakpoint on line 2: `(define y (+ x 2))`.
+    let run = start_debug_run(source, &path, 2);
+
+    let evt = run
+        .event_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("a Stopped event should arrive for the sync breakpoint");
+    assert!(
+        matches!(evt, DebugEvent::Stopped { reason: StopReason::Breakpoint, .. }),
+        "expected Stopped(Breakpoint), got {evt:?}"
+    );
+
+    run.cmd_tx.send(DebugCommand::Continue).unwrap();
+    let result = run
+        .handle
+        .join()
+        .expect("run thread joins")
+        .expect("program runs to completion");
+    let _ = result;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// THE GATE: a breakpoint on a line that runs only INSIDE an async task stops, and
+/// Continue resumes to completion.
+#[test]
+fn async_task_breakpoint_stops_and_continues() {
+    let dir = std::env::temp_dir().join(format!("sema-dap-async-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("async.sema");
+    // Breakpoint on line 2: `(+ 1 2)` — runs only inside the spawned task body.
+    let source = "(define p (async/spawn (fn ()\n  (+ 1 2))))\n(await p)\n";
+    std::fs::write(&path, source).unwrap();
+    let path = std::fs::canonicalize(&path).unwrap();
+
+    let run = start_debug_run(source, &path, 2);
+
+    let evt = run
+        .event_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("a Stopped event should arrive for the async-task breakpoint");
+    assert!(
+        matches!(evt, DebugEvent::Stopped { reason: StopReason::Breakpoint, .. }),
+        "expected Stopped(Breakpoint) inside the async task, got {evt:?}"
+    );
+
+    run.cmd_tx.send(DebugCommand::Continue).unwrap();
+    run.handle
+        .join()
+        .expect("run thread joins")
+        .expect("program runs to completion after Continue");
+    let _ = std::fs::remove_dir_all(&dir);
+}
