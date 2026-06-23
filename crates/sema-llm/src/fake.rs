@@ -82,6 +82,10 @@ pub struct FakeProvider {
     default_model: String,
     script: Mutex<VecDeque<FakeReply>>,
     recorder: Arc<FakeRecorder>,
+    /// Fixed wall-clock delay injected into `embed()` (and only `embed()`), so a
+    /// test can prove two concurrent `llm/embed`s overlap on the cooperative
+    /// scheduler (wall ≈ max, not sum). 0 = no delay (default).
+    embed_delay_ms: u64,
 }
 
 impl FakeProvider {
@@ -92,6 +96,7 @@ impl FakeProvider {
             name: name.to_string(),
             default_model: "fake-model".to_string(),
             script: VecDeque::new(),
+            embed_delay_ms: 0,
         }
     }
 
@@ -107,6 +112,7 @@ pub struct FakeProviderBuilder {
     name: String,
     default_model: String,
     script: VecDeque<FakeReply>,
+    embed_delay_ms: u64,
 }
 
 impl FakeProviderBuilder {
@@ -214,6 +220,31 @@ impl FakeProviderBuilder {
         self
     }
 
+    /// Script an embedding reply with an explicit prompt-token count (so a test
+    /// can assert each concurrent embed carries its OWN input-token total on its
+    /// own span — the per-task isolation proof).
+    pub fn embed_with_tokens(mut self, vectors: Vec<Vec<f64>>, prompt_tokens: u32) -> Self {
+        let model = self.default_model.clone();
+        self.script.push_back(FakeReply::Embed(EmbedResponse {
+            embeddings: vectors,
+            model: model.clone(),
+            usage: Usage {
+                prompt_tokens,
+                completion_tokens: 0,
+                model,
+                ..Default::default()
+            },
+        }));
+        self
+    }
+
+    /// Inject a fixed wall-clock delay into `embed()` (only `embed()`), so two
+    /// concurrent `llm/embed`s offloaded onto the shared runtime visibly overlap.
+    pub fn embed_delay(mut self, ms: u64) -> Self {
+        self.embed_delay_ms = ms;
+        self
+    }
+
     /// Script a rerank reply: `results` is `(original_index, relevance_score)` pairs,
     /// already ordered highest-relevance-first.
     pub fn rerank(mut self, results: &[(usize, f64)]) -> Self {
@@ -241,6 +272,7 @@ impl FakeProviderBuilder {
             default_model: self.default_model,
             script: Mutex::new(self.script),
             recorder: Arc::new(FakeRecorder::default()),
+            embed_delay_ms: self.embed_delay_ms,
         }
     }
 
@@ -334,6 +366,11 @@ impl LlmProvider for FakeProvider {
 
     fn embed(&self, request: EmbedRequest) -> Result<EmbedResponse, LlmError> {
         self.recorder.embeds.lock().unwrap().push(request);
+        // Injected latency: on the async path this runs on a spawn_blocking
+        // worker, so a real thread sleep is what lets two embeds overlap.
+        if self.embed_delay_ms > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(self.embed_delay_ms));
+        }
         match self.next() {
             Some(FakeReply::Embed(r)) => Ok(r),
             Some(FakeReply::Error(e)) => Err(e),

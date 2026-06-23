@@ -14,9 +14,9 @@ pub mod vfs;
 pub use async_signal::{
     blocking_sleep_ms, call_cancel_callback, call_run_scheduler, call_run_scheduler_all_of,
     call_run_scheduler_any_of, call_run_scheduler_timeout, call_spawn_callback, check_interrupt,
-    clear_blocking_sleep_callback, clear_interrupt_callback, in_async_context, io_park,
-    notify_io_complete, set_async_context, set_blocking_sleep_callback, set_cancel_callback,
-    current_conversation_scope_boxed, install_task_otel, set_interrupt_callback,
+    clear_blocking_sleep_callback, clear_interrupt_callback, current_conversation_scope_boxed,
+    in_async_context, install_task_otel, io_park, notify_io_complete, set_async_context,
+    set_blocking_sleep_callback, set_cancel_callback, set_interrupt_callback,
     set_otel_task_callbacks, set_resume_value, set_run_scheduler_callback, set_spawn_callback,
     set_yield_signal, take_resume_value, take_task_otel, take_yield_signal, BlockingSleepFn,
     CancelCallbackFn, InterruptCallbackFn, IoHandle, IoPoll, OtelInstallFn, OtelScopeFn,
