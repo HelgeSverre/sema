@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.27.1
+
+### Added
+
+- **Scientific / exponential number literals.** Floats can now be written as
+  `<mantissa>e<exponent>` — `6.022e23`, `1.0e19`, `1e-9`, `-2.5E6` (`e`/`E`, optional
+  exponent sign, bare-integer mantissa allowed). Out-of-range magnitudes follow
+  IEEE-754 (`1e400` → `inf`). An `e`/`E` not followed by (an optional sign and) digits
+  is left untouched, so identifiers like `e` and `exp` are never mis-parsed.
+
+### Fixed
+
+- **Breakpoints fire inside async tasks** — in both the **native DAP** (VS Code) and the
+  **WASM playground** debuggers. A breakpoint on a line that runs only inside an
+  `async`/`async/spawn` task (or via `async/map`/`pool-map`/`async/all`/channels) was
+  silently skipped because the scheduler ran every async task step in non-debug mode.
+  STOP + CONTINUE and step into/over/out now work at async breakpoints (verified e2e in
+  the playground). Known follow-ups: stepping *across* the scheduler into sibling tasks,
+  and variable-panel scoping to the paused task's frame at a cooperative stop.
+- **stdlib semantic-correctness sweep.** A pass over divergence bugs across the standard
+  library: `string/foldcase` and `string-ci=?` now use full **Unicode case folding**
+  (`"Straße"` folds to `"strasse"`, so caseless comparison matches `"STRASSE"`) — distinct
+  from `string/lower`; plus correctness fixes in equality (`eq`), `shell`, date/time,
+  typed arrays, and text helpers, with matching doc updates.
+
 ## 1.27.0
 
 ### Added
