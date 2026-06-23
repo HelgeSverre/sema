@@ -185,6 +185,13 @@ pub struct DebugState {
     pub event_tx: mpsc::Sender<DebugEvent>,
     /// Channel to receive commands from the DAP frontend
     pub command_rx: mpsc::Receiver<DebugCommand>,
+    /// True for a cooperative (WASM playground) session with no real command
+    /// channel: stops are surfaced by RETURNING `VmExecResult::Stopped` from
+    /// `run_cooperative`/`start_cooperative` and resumed by a later call, never
+    /// by blocking on `command_rx`. The async scheduler consults this to decide
+    /// whether a mid-task breakpoint blocks (`handle_debug_stop`, native DAP) or
+    /// surfaces as a cooperative stop (this flag, WASM). Set by `new_headless`.
+    headless: bool,
     next_bp_id: u32,
 }
 
@@ -207,6 +214,7 @@ impl DebugState {
             instructions_remaining: 0,
             event_tx,
             command_rx,
+            headless: false,
             next_bp_id: 1,
         }
     }
@@ -231,8 +239,15 @@ impl DebugState {
             instructions_remaining: 0,
             event_tx,
             command_rx,
+            headless: true,
             next_bp_id: 1,
         }
+    }
+
+    /// Whether this is a cooperative (WASM) session with no real command
+    /// channel. See [`DebugState::headless`].
+    pub fn is_headless(&self) -> bool {
+        self.headless
     }
 
     /// Check if we should stop at the given span and frame depth.

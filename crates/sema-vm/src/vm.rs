@@ -265,6 +265,81 @@ thread_local! {
         const { RefCell::new(Vec::new()) };
 }
 
+thread_local! {
+    /// The `StopInfo` of a breakpoint that fired inside an async task during a
+    /// COOPERATIVE (headless) debug session. Set by the scheduler's
+    /// `step_task_debug` when, instead of blocking in `handle_debug_stop`, it
+    /// leaves the task paused and unwinds so the cooperative call can surface the
+    /// stop to JS. Consumed by `start_cooperative`/`run_cooperative`, which
+    /// translate it into `VmExecResult::Stopped(info)`. Cleared on resume.
+    static COOP_TASK_STOP: RefCell<Option<crate::debug::StopInfo>> = const { RefCell::new(None) };
+}
+
+/// Record the location a task stopped at for a cooperative (headless) debug
+/// session. Called by the scheduler.
+pub fn set_coop_task_stop(info: crate::debug::StopInfo) {
+    COOP_TASK_STOP.with(|s| *s.borrow_mut() = Some(info));
+}
+
+/// Take the pending cooperative task-stop location, if any. Called by
+/// `run_cooperative`/`start_cooperative` to surface the stop to JS.
+pub fn take_coop_task_stop() -> Option<crate::debug::StopInfo> {
+    COOP_TASK_STOP.with(|s| s.borrow_mut().take())
+}
+
+/// Reconstruct the value a scheduler-driving native (await/all/timeout/race/run)
+/// would have returned, now that its target promise(s) have settled — used by the
+/// cooperative debug-resume path to resume the main VM after a task breakpoint.
+/// A rejected/cancelled target surfaces as the same error the native would have
+/// produced. Mirrors the success/error mapping in `sema-stdlib/src/async_ops.rs`.
+fn reconstruct_coop_resume_value(how: &sema_core::DebugCoopResume) -> Result<Value, SemaError> {
+    use sema_core::{DebugCoopResume, PromiseState};
+    match how {
+        DebugCoopResume::Run => Ok(Value::nil()),
+        DebugCoopResume::Await(p) => match &*p.state.borrow() {
+            PromiseState::Resolved(v) => Ok(v.clone()),
+            PromiseState::Rejected(e) => {
+                Err(SemaError::eval(format!("async/await: task rejected: {e}")))
+            }
+            PromiseState::Cancelled => Err(SemaError::eval("async/await: task was cancelled")),
+            PromiseState::Pending => Err(SemaError::eval(
+                "async/await: still pending after scheduler run",
+            )),
+        },
+        DebugCoopResume::All(promises) => {
+            let mut results = Vec::with_capacity(promises.len());
+            for p in promises {
+                match &*p.state.borrow() {
+                    PromiseState::Resolved(v) => results.push(v.clone()),
+                    PromiseState::Rejected(e) => {
+                        return Err(SemaError::eval(format!("async/all: task rejected: {e}")))
+                    }
+                    PromiseState::Cancelled => {
+                        return Err(SemaError::eval("async/all: task was cancelled"))
+                    }
+                    PromiseState::Pending => {
+                        return Err(SemaError::eval("async/all: task still pending"))
+                    }
+                }
+            }
+            Ok(Value::list(results))
+        }
+        DebugCoopResume::Race(promises) => {
+            for p in promises {
+                if let PromiseState::Resolved(v) = &*p.state.borrow() {
+                    return Ok(v.clone());
+                }
+            }
+            for p in promises {
+                if let PromiseState::Rejected(e) = &*p.state.borrow() {
+                    return Err(SemaError::eval(format!("async/race: task rejected: {e}")));
+                }
+            }
+            Err(SemaError::eval("async/race: no promise resolved"))
+        }
+    }
+}
+
 /// RAII guard registering a `DebugState` as the active debug session for the
 /// duration of a debug run, unregistering it on drop (including panic unwind).
 struct ActiveDebugGuard;
@@ -765,7 +840,56 @@ impl VM {
         ctx: &EvalContext,
         debug: &mut crate::debug::DebugState,
     ) -> Result<crate::debug::VmExecResult, SemaError> {
-        self.run_inner(ctx, Some(debug))
+        // Resume a cooperative debug pause that occurred inside an async task: a
+        // scheduler-driving native (await/all/timeout/race/run) yielded the main
+        // VM for a task breakpoint. Before resuming the main VM, re-drive the
+        // scheduler so the paused task continues; if it pauses again surface the
+        // new stop, otherwise reconstruct the native's value and resume the main
+        // VM via the stack-top placeholder it left (`set_resume_value` semantics).
+        if let Some((target, how)) = sema_core::take_debug_coop_resume() {
+            // The scheduler runs in debug mode for this re-drive too, so a later
+            // breakpoint in the same or a sibling task stops as well.
+            let _active = ActiveDebugGuard::enter(debug);
+            match sema_core::call_run_scheduler_target(ctx, target.clone()) {
+                Ok(sema_core::SchedulerRunResult::DebugPaused) => {
+                    // Paused again on another breakpoint. Re-arm the resume so the
+                    // NEXT call drives the scheduler once more, and surface the new
+                    // stop. (The native already consumed its yield; we re-store the
+                    // coop resume here since we took it above.)
+                    sema_core::set_debug_coop_resume(target, how);
+                    if let Some(info) = take_coop_task_stop() {
+                        return Ok(crate::debug::VmExecResult::Stopped(info));
+                    }
+                    // Shouldn't happen, but don't wedge: fall through to a yield.
+                    return Ok(crate::debug::VmExecResult::Yielded);
+                }
+                Ok(_) => {
+                    // Target settled. Reconstruct the value the yielded native
+                    // (await/all/timeout/race/run) would have returned, put it on
+                    // the main VM's stack top (the native left a nil placeholder
+                    // there), and resume the main VM from after that native call.
+                    // A rejected/cancelled target surfaces as an error here — the
+                    // same error the native would have produced had it not paused.
+                    match reconstruct_coop_resume_value(&how) {
+                        Ok(resume_value) => {
+                            self.replace_stack_top(resume_value);
+                            return self.run_inner(ctx, Some(debug));
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        // Normal cooperative step (no pending debug-pause resume): run with the
+        // session registered so a task breakpoint hit during this step (e.g. the
+        // main VM reaches an await whose task then breaks) surfaces as a stop.
+        let _active = ActiveDebugGuard::enter(debug);
+        let result = self.run_inner(ctx, Some(debug))?;
+        if let Some(info) = take_coop_task_stop() {
+            return Ok(crate::debug::VmExecResult::Stopped(info));
+        }
+        Ok(result)
     }
 
     /// Start cooperative debug execution: push the initial frame and run.
@@ -786,7 +910,20 @@ impl VM {
             base,
             open_upvalues: None,
         });
-        self.run_inner(ctx, Some(debug))
+        // Register this DebugState as the active session so the async scheduler
+        // (reached via the RUN_SCHEDULER_CALLBACK seam during a native call) runs
+        // task steps in debug mode; a mid-task breakpoint then surfaces as a
+        // cooperative stop (see `step_task_debug`). The guard drops when control
+        // returns to JS — correct, since no scheduler runs between JS calls.
+        let _active = ActiveDebugGuard::enter(debug);
+        let result = self.run_inner(ctx, Some(debug))?;
+        // If a task breakpoint fired during this drive, the scheduler-driving
+        // native yielded the main VM (AsyncYield) and recorded the stop; surface
+        // it to JS as a cooperative Stop instead of the raw AsyncYield.
+        if let Some(info) = take_coop_task_stop() {
+            return Ok(crate::debug::VmExecResult::Stopped(info));
+        }
+        Ok(result)
     }
 
     /// Number of active call frames.

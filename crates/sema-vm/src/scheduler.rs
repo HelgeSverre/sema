@@ -705,6 +705,23 @@ fn step_task_debug(task: &mut Task, ctx: &EvalContext) -> Result<VmExecResult, S
     loop {
         match result {
             Ok(VmExecResult::Stopped(info)) => {
+                // COOPERATIVE (headless) session: do NOT block in
+                // `handle_debug_stop` (its command channel is disconnected and
+                // would swallow the stop). Instead record the stop location, leave
+                // the task PAUSED (its VM frames intact, NOT advanced, NOT reaped)
+                // and return `Stopped` so `run_until_reentrant` unwinds and the
+                // driving native yields the main VM — surfacing the stop to JS.
+                // The next scheduler re-drive resumes this same task from here.
+                let is_headless =
+                    vm::with_active_debug(|debug| debug.is_headless()).unwrap_or(false);
+                if is_headless {
+                    vm::set_coop_task_stop(info);
+                    return Ok(VmExecResult::Stopped(crate::debug::StopInfo {
+                        reason: crate::debug::StopReason::Breakpoint,
+                        file: None,
+                        line: 0,
+                    }));
+                }
                 let resume = vm::with_active_debug(|debug| {
                     task.vm.handle_debug_stop(ctx, debug, info.clone())
                 });
@@ -971,6 +988,10 @@ fn run_until_reentrant(
         };
         set_async_context(prev_async);
 
+        // Set when a cooperative (headless) debug breakpoint paused this task:
+        // leave it Ready (its frames are intact at the breakpoint) and stop
+        // driving so the call unwinds to JS. The next drive resumes it.
+        let mut debug_paused = false;
         match result {
             Ok(VmExecResult::Finished(val)) => {
                 *task.promise.state.borrow_mut() = PromiseState::Resolved(val);
@@ -979,7 +1000,12 @@ fn run_until_reentrant(
             Ok(VmExecResult::AsyncYield(reason)) => {
                 task.state = TaskState::Blocked(reason);
             }
-            Ok(_) => {}
+            Ok(VmExecResult::Stopped(_)) => {
+                // Cooperative debug pause (see `step_task_debug`): keep the task
+                // Ready/paused so the next scheduler re-drive continues it.
+                debug_paused = true;
+            }
+            Ok(VmExecResult::Yielded) => {}
             Err(e) => {
                 *task.promise.state.borrow_mut() = PromiseState::Rejected(format!("{e}"));
                 task.state = TaskState::Failed;
@@ -992,6 +1018,13 @@ fn run_until_reentrant(
         // swallowed during unwind. `reinstall` disarms the guard so its Drop
         // does not run the reinstall a second time.
         guard.reinstall()?;
+
+        if debug_paused {
+            // Stop driving and unwind: the paused task stays in the scheduler
+            // (Ready, frames intact). The driving native sees DebugPaused, yields
+            // the main VM, and `run_cooperative` surfaces the stop to JS.
+            return Ok(SchedulerRunResult::DebugPaused);
+        }
     }
 
     Err(SemaError::eval(

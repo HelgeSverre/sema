@@ -5,8 +5,9 @@ use std::rc::Rc;
 use sema_core::{
     call_run_scheduler, call_run_scheduler_all_of, call_run_scheduler_any_of,
     call_run_scheduler_timeout, call_spawn_callback, check_arity, in_async_context,
-    set_yield_signal, take_resume_value, AsyncPromise, Channel, Env, EvalContext, NativeFn,
-    PromiseState, SchedulerRunResult, SemaError, Value, ValueView, YieldReason,
+    set_debug_coop_resume, set_yield_signal, take_resume_value, AsyncPromise, Channel,
+    DebugCoopResume, Env, EvalContext, NativeFn, PromiseState, SchedulerRunResult, SchedulerTarget,
+    SemaError, Value, ValueView, YieldReason,
 };
 
 use crate::register_fn;
@@ -135,8 +136,20 @@ fn register_promise_ops(env: &Env) {
             return Ok(Value::nil()); // placeholder, VM catches the signal
         }
 
-        // At top level, run the scheduler inline
-        call_run_scheduler(ctx, Some(promise.clone()))?;
+        // At top level, run the scheduler inline.
+        if call_run_scheduler(ctx, Some(promise.clone()))? == SchedulerRunResult::DebugPaused {
+            // A breakpoint fired inside a task during a cooperative (WASM) debug
+            // session: the target is still pending. Yield the main VM so
+            // `run_cooperative` surfaces the stop to JS, and record how to resume
+            // (re-drive the scheduler, then return this promise's value). The
+            // native re-runs on resume via `take_resume_value` above.
+            set_debug_coop_resume(
+                SchedulerTarget::One(promise.clone()),
+                DebugCoopResume::Await(promise.clone()),
+            );
+            set_yield_signal(YieldReason::AwaitPromise(promise));
+            return Ok(Value::nil());
+        }
         let state = promise.state.borrow();
         match &*state {
             PromiseState::Resolved(v) => Ok(v.clone()),
@@ -151,7 +164,14 @@ fn register_promise_ops(env: &Env) {
     // async/run — run all pending tasks to completion
     register_fn_ctx(env, "async/run", |ctx, args| {
         check_arity!(args, "async/run", 0);
-        call_run_scheduler(ctx, None)?;
+        if call_run_scheduler(ctx, None)? == SchedulerRunResult::DebugPaused {
+            set_debug_coop_resume(SchedulerTarget::All, DebugCoopResume::Run);
+            // No specific promise to await: park on the scheduler re-drive via a
+            // dummy never-resolving signal is wrong, so yield with an All target
+            // surrogate. `run_cooperative` re-drives `SchedulerTarget::All`.
+            set_yield_signal(YieldReason::Sleep(0));
+            return Ok(Value::nil());
+        }
         Ok(Value::nil())
     });
 
@@ -247,7 +267,22 @@ fn register_promise_ops(env: &Env) {
 
         // Run scheduler until the requested promises settle. Unrelated
         // background tasks must not make this combinator report deadlock.
-        call_run_scheduler_all_of(ctx, promises.clone())?;
+        if call_run_scheduler_all_of(ctx, promises.clone())? == SchedulerRunResult::DebugPaused {
+            // Cooperative debug pause inside a task: yield the main VM and re-run
+            // this native on resume (it re-collects the now-settled promises).
+            set_debug_coop_resume(
+                SchedulerTarget::AllOf(promises.clone()),
+                DebugCoopResume::All(promises.clone()),
+            );
+            // Yield against the first still-pending promise so the VM suspends.
+            let pending = promises
+                .iter()
+                .find(|p| matches!(&*p.state.borrow(), PromiseState::Pending))
+                .cloned()
+                .unwrap_or_else(|| promises[0].clone());
+            set_yield_signal(YieldReason::AwaitPromise(pending));
+            return Ok(Value::nil());
+        }
 
         // Collect results — propagate the first non-resolved settlement.
         // Cancellation is reported distinctly from regular rejection.
@@ -302,7 +337,19 @@ fn register_promise_ops(env: &Env) {
 
         // Run scheduler until one requested promise settles. Unrelated
         // background tasks must not make this combinator report deadlock.
-        call_run_scheduler_any_of(ctx, promises.clone())?;
+        if call_run_scheduler_any_of(ctx, promises.clone())? == SchedulerRunResult::DebugPaused {
+            set_debug_coop_resume(
+                SchedulerTarget::AnyOf(promises.clone()),
+                DebugCoopResume::Race(promises.clone()),
+            );
+            let pending = promises
+                .iter()
+                .find(|p| matches!(&*p.state.borrow(), PromiseState::Pending))
+                .cloned()
+                .unwrap_or_else(|| promises[0].clone());
+            set_yield_signal(YieldReason::AwaitPromise(pending));
+            return Ok(Value::nil());
+        }
 
         // Find first resolved
         for p in &promises {
@@ -359,10 +406,20 @@ fn register_promise_ops(env: &Env) {
         }
 
         // Run scheduler until the promise resolves or the timeout elapses.
-        if call_run_scheduler_timeout(ctx, promise.clone(), ms as u64)?
-            == SchedulerRunResult::TimedOut
-        {
-            return Err(SemaError::eval("async/timeout: operation timed out"));
+        match call_run_scheduler_timeout(ctx, promise.clone(), ms as u64)? {
+            SchedulerRunResult::TimedOut => {
+                return Err(SemaError::eval("async/timeout: operation timed out"));
+            }
+            SchedulerRunResult::DebugPaused => {
+                // Cooperative debug pause inside the awaited task: yield + re-run.
+                set_debug_coop_resume(
+                    SchedulerTarget::One(promise.clone()),
+                    DebugCoopResume::Await(promise.clone()),
+                );
+                set_yield_signal(YieldReason::AwaitPromise(promise));
+                return Ok(Value::nil());
+            }
+            SchedulerRunResult::Complete => {}
         }
 
         // Check if resolved

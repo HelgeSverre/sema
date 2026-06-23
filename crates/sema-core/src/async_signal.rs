@@ -139,12 +139,49 @@ pub enum SchedulerTarget {
 pub enum SchedulerRunResult {
     Complete,
     TimedOut,
+    /// A breakpoint fired inside an async task during a COOPERATIVE (WASM)
+    /// debug session: the scheduler stopped driving and left the breakpointed
+    /// task PAUSED (frames intact, not reaped) so it can resume on a later
+    /// scheduler re-entry. The driving native (`async/await`, `async/all`,
+    /// `async/timeout`, `async/race`) must NOT inspect the still-pending target
+    /// promise on this result — it yields the main VM (so `run_cooperative`
+    /// surfaces the stop to JS) and re-drives the scheduler on resume. Only ever
+    /// produced when a headless `DebugState` is the active session; the blocking
+    /// native DAP path never sees it (it blocks in `handle_debug_stop` instead).
+    DebugPaused,
+}
+
+/// How a debug-paused scheduler-driving native should reconstruct its return
+/// value once the cooperative debug session resumes the paused task and the
+/// target promise(s) settle. Recorded by the native when the scheduler returns
+/// [`SchedulerRunResult::DebugPaused`]; consumed by `run_cooperative` in
+/// `sema-vm`, which re-drives the scheduler and then resumes the main VM with
+/// the reconstructed value (`set_resume_value`).
+#[derive(Clone)]
+pub enum DebugCoopResume {
+    /// `async/await` / `async/timeout`: resume with the single target promise's
+    /// resolved value (rejection/cancel surface as the native's own error after
+    /// resume, since the native re-runs and re-inspects the promise).
+    Await(Rc<AsyncPromise>),
+    /// `async/all`: resume with the list of all resolved values.
+    All(Vec<Rc<AsyncPromise>>),
+    /// `async/race` / `async/any`: resume with the first settled promise's value.
+    Race(Vec<Rc<AsyncPromise>>),
+    /// `async/run`: no value to reconstruct (returns nil).
+    Run,
 }
 
 thread_local! {
     /// Set by native functions that need to yield. Checked by the VM after
     /// each native call. If set, the VM suspends the current task.
     static YIELD_SIGNAL: RefCell<Option<YieldReason>> = const { RefCell::new(None) };
+
+    /// Set by a scheduler-driving native when the cooperative scheduler paused
+    /// for a debug breakpoint inside a task. Carries the `SchedulerTarget` to
+    /// re-drive on resume and how to reconstruct the native's value. Consumed by
+    /// `run_cooperative` (sema-vm). See [`SchedulerRunResult::DebugPaused`].
+    static DEBUG_COOP_RESUME: RefCell<Option<(SchedulerTarget, DebugCoopResume)>> =
+        const { RefCell::new(None) };
 
     /// Set by the scheduler before resuming a yielded task. The native
     /// function that previously yielded checks this first and returns it
@@ -166,6 +203,27 @@ pub fn set_yield_signal(reason: YieldReason) {
 /// Take the yield signal (clearing it). Called by the VM after native calls.
 pub fn take_yield_signal() -> Option<YieldReason> {
     YIELD_SIGNAL.with(|s| s.borrow_mut().take())
+}
+
+// ── Cooperative debug-pause resume (WASM) ───────────────────────
+
+/// Record how to resume a scheduler-driving native after a cooperative debug
+/// pause. Called by the native when the scheduler returns `DebugPaused`.
+pub fn set_debug_coop_resume(target: SchedulerTarget, how: DebugCoopResume) {
+    DEBUG_COOP_RESUME.with(|s| *s.borrow_mut() = Some((target, how)));
+}
+
+/// Take the pending cooperative debug-pause resume, if any. Called by
+/// `run_cooperative` (sema-vm) to re-drive the scheduler on resume.
+pub fn take_debug_coop_resume() -> Option<(SchedulerTarget, DebugCoopResume)> {
+    DEBUG_COOP_RESUME.with(|s| s.borrow_mut().take())
+}
+
+/// True if a cooperative debug pause is pending (a scheduler-driving native
+/// yielded the main VM for a task breakpoint). Used by `run_cooperative` to
+/// decide whether the AsyncYield it sees is a debug pause vs a real async park.
+pub fn debug_coop_resume_pending() -> bool {
+    DEBUG_COOP_RESUME.with(|s| s.borrow().is_some())
 }
 
 // ── Resume value ────────────────────────────────────────────────
@@ -437,11 +495,13 @@ pub fn io_park(timeout_ms: u64) {
     }
 }
 
-/// Run the scheduler, optionally waiting for a specific promise.
+/// Run the scheduler, optionally waiting for a specific promise. Returns the
+/// scheduler run result so the caller can detect a cooperative debug pause
+/// ([`SchedulerRunResult::DebugPaused`]).
 pub fn call_run_scheduler(
     ctx: &EvalContext,
     target: Option<Rc<AsyncPromise>>,
-) -> Result<(), SemaError> {
+) -> Result<SchedulerRunResult, SemaError> {
     let f = RUN_SCHEDULER_CALLBACK.with(|cb| cb.get()).ok_or_else(|| {
         SemaError::eval(
             "async: no async scheduler registered (async requires the VM backend)".to_string(),
@@ -451,33 +511,50 @@ pub fn call_run_scheduler(
         Some(promise) => SchedulerTarget::One(promise),
         None => SchedulerTarget::All,
     };
-    f(ctx, target).map(|_| ())
+    f(ctx, target)
 }
 
 /// Run the scheduler until all target promises complete, or any target rejects.
 pub fn call_run_scheduler_all_of(
     ctx: &EvalContext,
     targets: Vec<Rc<AsyncPromise>>,
-) -> Result<(), SemaError> {
+) -> Result<SchedulerRunResult, SemaError> {
     let f = RUN_SCHEDULER_CALLBACK.with(|cb| cb.get()).ok_or_else(|| {
         SemaError::eval(
             "async: no async scheduler registered (async requires the VM backend)".to_string(),
         )
     })?;
-    f(ctx, SchedulerTarget::AllOf(targets)).map(|_| ())
+    f(ctx, SchedulerTarget::AllOf(targets))
 }
 
 /// Run the scheduler until any target promise completes.
 pub fn call_run_scheduler_any_of(
     ctx: &EvalContext,
     targets: Vec<Rc<AsyncPromise>>,
-) -> Result<(), SemaError> {
+) -> Result<SchedulerRunResult, SemaError> {
     let f = RUN_SCHEDULER_CALLBACK.with(|cb| cb.get()).ok_or_else(|| {
         SemaError::eval(
             "async: no async scheduler registered (async requires the VM backend)".to_string(),
         )
     })?;
-    f(ctx, SchedulerTarget::AnyOf(targets)).map(|_| ())
+    f(ctx, SchedulerTarget::AnyOf(targets))
+}
+
+/// Run the scheduler with an explicit `SchedulerTarget`. Used by the cooperative
+/// debug-resume path (`run_cooperative` in sema-vm) to re-drive the scheduler for
+/// a paused task after a breakpoint, reusing the exact target the original native
+/// recorded. Returns the scheduler run result (including `DebugPaused` if another
+/// breakpoint fires).
+pub fn call_run_scheduler_target(
+    ctx: &EvalContext,
+    target: SchedulerTarget,
+) -> Result<SchedulerRunResult, SemaError> {
+    let f = RUN_SCHEDULER_CALLBACK.with(|cb| cb.get()).ok_or_else(|| {
+        SemaError::eval(
+            "async: no async scheduler registered (async requires the VM backend)".to_string(),
+        )
+    })?;
+    f(ctx, target)
 }
 
 /// Run the scheduler until the target promise completes or the duration elapses.
