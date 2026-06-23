@@ -25,59 +25,108 @@ use std::path::PathBuf;
 use sema_eval::Interpreter;
 use sema_vm::{DebugState, StepMode, VmExecResult, VM};
 
+/// One cooperative debug session: the VM, its (headless) DebugState, and the
+/// interpreter whose `ctx`/`global_env` it runs against. Built by [`start`].
+struct Coop {
+    vm: VM,
+    debug: DebugState,
+    interpreter: Interpreter,
+}
+
+impl Coop {
+    /// Compile `source` cooperatively (spans → `<playground>`, matching the WASM
+    /// path), install the scheduler, set a single breakpoint on `bp_line`, and
+    /// start cooperative execution. Returns the session plus the first result.
+    fn start(source: &str, bp_line: u32) -> (Self, VmExecResult) {
+        let interpreter = Interpreter::new();
+        let (vals, span_map) = sema_reader::read_many_with_spans(source).expect("parses");
+        // The WASM debugger attributes spans to this synthetic path; canonicalize
+        // fails for it everywhere, so both the compiler and set_breakpoints keep
+        // it verbatim and agree on the breakpoint key.
+        let source_file = PathBuf::from("<playground>");
+        let prog = sema_vm::compile_program_with_spans(&vals, &span_map, Some(source_file.clone()))
+            .expect("compiles");
+        sema_vm::init_scheduler(interpreter.global_env.clone(), Vec::new());
+
+        let valid = sema_vm::valid_breakpoint_lines(&prog.closure, &prog.functions);
+        let snapped =
+            sema_vm::snap_breakpoint_line(bp_line, &valid).expect("bp line snaps to executable");
+        assert_eq!(
+            snapped, bp_line,
+            "test programs use directly-executable breakpoint lines"
+        );
+
+        let mut debug = DebugState::new_headless();
+        debug.set_valid_breakpoint_lines(sema_vm::valid_breakpoint_lines_by_file(
+            &prog.closure,
+            &prog.functions,
+        ));
+        let resolved = debug.set_breakpoints(&source_file, &[snapped]);
+        assert!(
+            resolved.iter().any(|bp| bp.verified),
+            "breakpoint on line {bp_line} did not resolve: {resolved:?}"
+        );
+        debug.step_mode = StepMode::Continue;
+        debug.instructions_remaining = 5_000_000;
+
+        let mut vm = VM::new(
+            interpreter.global_env.clone(),
+            prog.functions,
+            &[],
+            prog.main_cache_slots,
+        )
+        .expect("VM builds");
+
+        let first = vm
+            .start_cooperative(prog.closure.clone(), &interpreter.ctx, &mut debug)
+            .expect("cooperative start does not error");
+
+        (
+            Coop {
+                vm,
+                debug,
+                interpreter,
+            },
+            first,
+        )
+    }
+
+    /// Simulate a Continue / poll loop: re-enter `run_cooperative` until the
+    /// program finishes. Panics if it does not finish within the tick budget.
+    fn continue_to_finish(&mut self) {
+        for _ in 0..10_000 {
+            self.debug.instructions_remaining = 5_000_000;
+            match self
+                .vm
+                .run_cooperative(&self.interpreter.ctx, &mut self.debug)
+                .expect("run_cooperative does not error on resume")
+            {
+                VmExecResult::Finished(_) => return,
+                _ => {}
+            }
+        }
+        panic!("program did not finish within the tick budget");
+    }
+}
+
+fn assert_stopped_at(result: &VmExecResult, line: u32) {
+    match result {
+        VmExecResult::Stopped(info) => assert_eq!(
+            info.line, line,
+            "expected cooperative Stopped on line {line}, got {info:?}"
+        ),
+        other => panic!("expected Stopped on line {line}, got {other:?}"),
+    }
+}
+
 /// CONTROL: sync breakpoint stops + continues cooperatively. Proves the harness
 /// is valid (so a failure of the async case below is a real gap, not a broken
 /// test). This already works today.
 #[test]
 fn coop_sync_breakpoint_full_cycle() {
-    let interpreter = Interpreter::new();
-    let source = "(define x 1)\n(define y (+ x 2))\n(+ x y)\n";
-
-    let (vals, span_map) = sema_reader::read_many_with_spans(source).unwrap();
-    let source_file = PathBuf::from("<playground>");
-    let prog =
-        sema_vm::compile_program_with_spans(&vals, &span_map, Some(source_file.clone())).unwrap();
-    sema_vm::init_scheduler(interpreter.global_env.clone(), Vec::new());
-
-    let valid = sema_vm::valid_breakpoint_lines(&prog.closure, &prog.functions);
-    let snapped = sema_vm::snap_breakpoint_line(2, &valid).unwrap();
-    let mut debug = DebugState::new_headless();
-    debug.set_valid_breakpoint_lines(sema_vm::valid_breakpoint_lines_by_file(
-        &prog.closure,
-        &prog.functions,
-    ));
-    debug.set_breakpoints(&source_file, &[snapped]);
-    debug.step_mode = StepMode::Continue;
-    debug.instructions_remaining = 5_000_000;
-
-    let mut vm = VM::new(
-        interpreter.global_env.clone(),
-        prog.functions,
-        &[],
-        prog.main_cache_slots,
-    )
-    .unwrap();
-
-    let first = vm
-        .start_cooperative(prog.closure.clone(), &interpreter.ctx, &mut debug)
-        .unwrap();
-    match first {
-        VmExecResult::Stopped(info) => assert_eq!(info.line, 2),
-        other => panic!("expected Stopped on sync bp, got {other:?}"),
-    }
-
-    let mut finished = false;
-    for _ in 0..10_000 {
-        debug.instructions_remaining = 5_000_000;
-        match vm.run_cooperative(&interpreter.ctx, &mut debug).unwrap() {
-            VmExecResult::Finished(_) => {
-                finished = true;
-                break;
-            }
-            _ => {}
-        }
-    }
-    assert!(finished, "sync program should finish after Continue");
+    let (mut coop, first) = Coop::start("(define x 1)\n(define y (+ x 2))\n(+ x y)\n", 2);
+    assert_stopped_at(&first, 2);
+    coop.continue_to_finish();
 }
 
 /// THE GATE: a breakpoint on a line that runs only INSIDE an async task must
@@ -85,72 +134,51 @@ fn coop_sync_breakpoint_full_cycle() {
 /// follow-up `run_cooperative` (Continue) must drive it to `Finished`.
 #[test]
 fn coop_async_task_breakpoint_stops_and_continues() {
-    let interpreter = Interpreter::new();
     // Line 2 is `(+ 1 2)` — executes only inside the spawned task body.
-    let source = "(define p (async/spawn (fn ()\n  (+ 1 2))))\n(await p)\n";
-
-    let (vals, span_map) = sema_reader::read_many_with_spans(source).unwrap();
-    let source_file = PathBuf::from("<playground>");
-    let prog =
-        sema_vm::compile_program_with_spans(&vals, &span_map, Some(source_file.clone())).unwrap();
-    sema_vm::init_scheduler(interpreter.global_env.clone(), Vec::new());
-
-    let valid = sema_vm::valid_breakpoint_lines(&prog.closure, &prog.functions);
-    let snapped =
-        sema_vm::snap_breakpoint_line(2, &valid).expect("async bp line snaps to executable line");
-    assert_eq!(snapped, 2, "the (+ 1 2) line should be directly executable");
-
-    let mut debug = DebugState::new_headless();
-    debug.set_valid_breakpoint_lines(sema_vm::valid_breakpoint_lines_by_file(
-        &prog.closure,
-        &prog.functions,
-    ));
-    debug.set_breakpoints(&source_file, &[snapped]);
-    debug.step_mode = StepMode::Continue;
-    debug.instructions_remaining = 5_000_000;
-
-    let mut vm = VM::new(
-        interpreter.global_env.clone(),
-        prog.functions,
-        &[],
-        prog.main_cache_slots,
-    )
-    .unwrap();
-
-    let first = vm
-        .start_cooperative(prog.closure.clone(), &interpreter.ctx, &mut debug)
-        .expect("cooperative start does not error");
-
-    match first {
-        VmExecResult::Stopped(info) => {
-            assert_eq!(
-                info.line, 2,
-                "async-task breakpoint should stop on line 2 (inside the thunk), got {info:?}"
-            );
-        }
-        other => panic!(
-            "expected Stopped inside the async task, got {other:?} \
-             (the async stop was swallowed — Slice 2 not implemented)"
-        ),
-    }
-
-    // Continue: re-enter cooperatively and drive to completion.
-    let mut finished = false;
-    for _ in 0..10_000 {
-        debug.instructions_remaining = 5_000_000;
-        match vm
-            .run_cooperative(&interpreter.ctx, &mut debug)
-            .expect("run_cooperative does not error on resume")
-        {
-            VmExecResult::Finished(_) => {
-                finished = true;
-                break;
-            }
-            _ => {}
-        }
-    }
-    assert!(
-        finished,
-        "async program must finish after Continue from the task breakpoint"
+    let (mut coop, first) = Coop::start(
+        "(define p (async/spawn (fn ()\n  (+ 1 2))))\n(await p)\n",
+        2,
     );
+    match &first {
+        VmExecResult::Stopped(info) => assert_eq!(
+            info.line, 2,
+            "async-task breakpoint should stop on line 2 (inside the thunk), got {info:?} \
+             (a swallowed stop means Slice 2 regressed)"
+        ),
+        other => panic!("expected Stopped inside the async task, got {other:?}"),
+    }
+    coop.continue_to_finish();
+}
+
+/// THE GATE (deeper / multi-task): two spawned tasks plus a breakpoint on a known
+/// line inside the SECOND task body. The cooperative debugger must pause exactly
+/// at that line (not the first task's body, not the top level), then Continue
+/// must run both tasks + the `async/all` to completion.
+#[test]
+fn coop_async_two_tasks_breakpoint_stops_at_known_line() {
+    // Lines (1-indexed):
+    // 1  (define a (async/spawn (fn ()
+    // 2    (* 2 3))))
+    // 3  (define b (async/spawn (fn ()
+    // 4    (+ 10 20))))           <- breakpoint here, inside task b
+    // 5  (async/all (list a b))
+    let source = "(define a (async/spawn (fn ()\n  (* 2 3))))\n\
+                  (define b (async/spawn (fn ()\n  (+ 10 20))))\n\
+                  (async/all (list a b))\n";
+    let (mut coop, first) = Coop::start(source, 4);
+    assert_stopped_at(&first, 4);
+    coop.continue_to_finish();
+}
+
+/// A breakpoint inside the FIRST of two tasks, with the breakpoint set on the
+/// first task's body line — proves pause location is the task that actually hits
+/// the line, and Continue still finishes the whole `async/all`.
+#[test]
+fn coop_async_breakpoint_in_first_task() {
+    let source = "(define a (async/spawn (fn ()\n  (* 2 3))))\n\
+                  (define b (async/spawn (fn ()\n  (+ 10 20))))\n\
+                  (async/all (list a b))\n";
+    let (mut coop, first) = Coop::start(source, 2);
+    assert_stopped_at(&first, 2);
+    coop.continue_to_finish();
 }
