@@ -5164,6 +5164,9 @@ fn do_complete_async_yield(
                 return finalize(resp);
             }
         }
+        // Cache miss (no entry, or entry present but invalid) — mirror the sync
+        // `do_complete` so `(llm/cache-stats)` :misses is accurate for async traffic.
+        CACHE_MISSES.with(|c| c.set(c.get() + 1));
         Some(key)
     } else {
         None
@@ -5199,6 +5202,10 @@ fn do_complete_async_yield(
     // Done on the VM thread so the offloaded worker touches no thread-locals.
     enforce_rate_limit();
     let max_retries = NETWORK_MAX_RETRIES.with(|c| c.get());
+    // Capture the retry-backoff base on the VM thread so the offloaded worker
+    // honors it (the worker has its own RETRY_BASE_MS TLS copy) — see
+    // `retry_backoff_ms`. Threaded through `run_fallback_retry`.
+    let retry_base_ms = RETRY_BASE_MS.with(|c| c.get());
     let chain: Vec<ResolvedProvider> = PROVIDER_REGISTRY.with(|reg| {
         let reg = reg.borrow();
         let fallback = FALLBACK_CHAIN.with(|c| c.borrow().clone());
@@ -5239,12 +5246,20 @@ fn do_complete_async_yield(
     let (tx, mut rx) =
         tokio::sync::oneshot::channel::<Result<CompleteOutcome, crate::types::LlmError>>();
     let req2 = request.clone();
+    // NOTE (async-path compat nuance): `provider.complete()` runs on a worker
+    // thread, so OpenAI's `DROP_TEMPERATURE` self-heal LEARNS into the worker's TLS,
+    // not the VM thread's. The WITHIN-call self-heal (400 → drop temperature → retry
+    // once) is fully preserved (it is encapsulated in one `complete()` call), so
+    // every async completion still succeeds; only the cross-call optimization (skip
+    // the doomed first request on later calls) is not shared across the VM thread —
+    // each async call may pay one extra 400+retry on temperature-rejecting models.
+    // Correctness holds; documented as a minor async-path divergence.
     // Bump in-flight + peak on spawn so a test can prove simultaneity (mirrors the
     // io-sleep-once spike instrumentation).
     let prev = IO_INFLIGHT.fetch_add(1, Ordering::SeqCst) + 1;
     IO_PEAK.fetch_max(prev, Ordering::SeqCst);
     crate::http::shared_rt().spawn_blocking(move || {
-        let r = run_fallback_retry(chain, req2, max_retries);
+        let r = run_fallback_retry(chain, req2, max_retries, retry_base_ms);
         let _ =
             IO_INFLIGHT.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some((v - 1).max(0)));
         let _ = tx.send(r);
@@ -5671,12 +5686,17 @@ fn retryable_wait(err: &crate::types::LlmError) -> Option<u64> {
 }
 
 /// Capped exponential backoff with full jitter. A positive server hint wins.
-fn retry_backoff_ms(attempt: u32, server_hint: u64) -> u64 {
+/// `base_ms` is the configured retry-backoff base, passed in explicitly (NOT read
+/// from the `RETRY_BASE_MS` thread-local here) so the async wire stage — which runs
+/// on a `spawn_blocking` worker thread that has its own TLS copy — honors the base
+/// the VM thread configured (incl. the `set_retry_base_ms(0)` test hook). The VM
+/// thread captures the TL value and threads it down.
+fn retry_backoff_ms(attempt: u32, server_hint: u64, base_ms: u64) -> u64 {
     const CAP_MS: u64 = 30_000;
     if server_hint > 0 {
         return server_hint.min(CAP_MS);
     }
-    let base = RETRY_BASE_MS.with(|c| c.get());
+    let base = base_ms;
     if base == 0 {
         return 0;
     }
@@ -5717,6 +5737,7 @@ fn complete_with_retry_collecting(
     provider: &dyn LlmProvider,
     request: &ChatRequest,
     max_retries: u32,
+    base_ms: u64,
 ) -> Result<(ChatResponse, Vec<RetryEvent>), crate::types::LlmError> {
     let mut attempt = 0u32;
     let mut events = Vec::new();
@@ -5725,7 +5746,7 @@ fn complete_with_retry_collecting(
             Ok(resp) => return Ok((resp, events)),
             Err(e) => match retryable_wait(&e) {
                 Some(hint) if attempt < max_retries => {
-                    let wait = retry_backoff_ms(attempt, hint);
+                    let wait = retry_backoff_ms(attempt, hint, base_ms);
                     events.push(RetryEvent {
                         attempt: attempt + 1,
                         kind: llm_error_kind(&e),
@@ -5764,7 +5785,9 @@ fn complete_with_retry(
     request: &ChatRequest,
     max_retries: u32,
 ) -> Result<ChatResponse, crate::types::LlmError> {
-    let (resp, events) = complete_with_retry_collecting(provider, request, max_retries)?;
+    // Sync path runs on the VM thread, so reading the TL base here is correct.
+    let base_ms = RETRY_BASE_MS.with(|c| c.get());
+    let (resp, events) = complete_with_retry_collecting(provider, request, max_retries, base_ms)?;
     emit_retry_spans(&events);
     Ok(resp)
 }
@@ -5801,6 +5824,7 @@ fn run_fallback_retry(
     chain: Vec<ResolvedProvider>,
     request: ChatRequest,
     max_retries: u32,
+    base_ms: u64,
 ) -> Result<CompleteOutcome, crate::types::LlmError> {
     let mut last_error = None;
     for entry in &chain {
@@ -5812,7 +5836,7 @@ fn run_fallback_retry(
         } else if req.model.is_empty() {
             req.model = entry.provider.default_model().to_string();
         }
-        match complete_with_retry_collecting(&*entry.provider, &req, max_retries) {
+        match complete_with_retry_collecting(&*entry.provider, &req, max_retries, base_ms) {
             Ok((resp, retry_events)) => {
                 return Ok(CompleteOutcome {
                     resp,

@@ -77,6 +77,39 @@ fn pool_map_complete_overlaps_and_preserves_order() {
     );
 }
 
+/// Regression (adversarial pass, minor #3): the async completion path must count a
+/// cache MISS in `(llm/cache-stats)` :misses, exactly like the sync `do_complete`.
+/// Before the fix the async cache-miss fall-through bumped only `CACHE_HITS` (on a
+/// hit) and silently skipped `CACHE_MISSES`, so async traffic under-reported misses.
+#[test]
+#[serial]
+fn async_cache_miss_is_counted() {
+    let _cap = sema_otel::testing::install();
+    let fake = FakeProvider::builder("fake")
+        .model("fake-chat")
+        .reply("hi")
+        .build();
+    let interp = Interpreter::new();
+    reset_runtime_state();
+    register_test_provider(Box::new(fake));
+
+    // One async completion inside an enabled cache → exactly one miss recorded.
+    let program = r#"
+        (llm/with-cache {:ttl 3600}
+          (fn ()
+            (async/all (list (async/spawn (fn () (llm/complete "uncached prompt")))))
+            (:misses (llm/cache-stats))))
+    "#;
+    let result = interp
+        .eval_str_compiled(program)
+        .expect("async cache-miss program evaluated");
+    assert_eq!(
+        result.as_int(),
+        Some(1),
+        "an async cache miss must be counted in (llm/cache-stats) :misses"
+    );
+}
+
 /// `llm/classify` batched over `async/pool-map` overlaps and returns the correct
 /// categories (as keywords, matching the keyword category list).
 #[test]
