@@ -2,10 +2,37 @@
 
 **Date:** 2026-06-24
 **Branch:** `feat/dynamic-workflows-spike1`
-**Status:** Track #1 **SHIPPED** 2026-06-24 — **Variant C (hybrid)** chosen and
-implemented. Defaults locked: typed `agent` reuses the `llm/extract` validator;
-`checkpoint` kept but demoted to optional; combinators get bare names
-(`parallel`/`pipeline`). Tracks #2–#4 (resume/tools/budgets → SQLite → polish) remain.
+**Status:** ALL TRACKS **SHIPPED** 2026-06-24. Track #1 (Variant C DSL + consolidation)
+plus the five runtime/dashboard slices below, each design-grounded + adversarially
+de-risked by a multi-agent workflow (`docs/plans/` synthesis) and driven to a green,
+evidence-backed gate.
+
+**Tracks #2–#4 — shipped slices (commit-per-slice, all gates green):**
+- **S1 budgets** — `:budget {:tokens N :usd N}` enforced via a sticky `over_budget` latch
+  checked at agent entry (not Err-through-fan-out). `budget exceeded` envelope. hello-wf
+  byte-identical. *Honest scope:* fan-out token accounting is best-effort (`LAST_USAGE`
+  not swapped per task — a separate scheduler effort).
+- **S2 tools** — `(agent prompt {:tools [...]})` runs the real `run_tool_loop` (via a new
+  `:on-tool-call` forward on `llm/chat`) and journals each genuine `agent.tool_call`.
+  v1 returns final text; `:schema`+`:tools` compose deferred.
+- **S3 resume** — `--resume <run-id>` short-circuits memoized leaves via `memo/<key>.json`
+  sidecars (the dir's existence is the source of truth → no frozen-vocab change).
+  content-key folds in a source `code_version` (auto-invalidation); round-trip-guarded
+  store. *Live: a 4-agent run resumes in 0.02s with 0 API calls vs 4.3s fresh, identical
+  result.*
+- **S4 SQLite** — idempotent `events.jsonl → .sema/runs/index.db` projection
+  (`ingest.rs`), `sema workflow index` backfill, additive `/api/index/runs` endpoint.
+  `run_id` = dir segment; `cost_usd` nullable (unpriced ≠ $0). Green viewer untouched.
+- **S5 all-phases-upfront** — `run.started` carries declared `:phases`; the viewer renders
+  the whole plan (pending → running → done → skipped). Playwright 10/10.
+
+*Deferred (documented defaults taken):* `:schema`+`:tools` compose; per-task usage
+scoping in the scheduler (the real fix for fan-out accounting); the SQLite-backed UI
+rewrite (endpoint is additive, client-side viewer kept); a visible run-picker dropdown.
+
+---
+
+**Track #1 acceptance gate — all green (evidence):**
 
 **Track #1 acceptance gate — all green (evidence):**
 - Both examples live-verified with real `gpt-5.4-mini`: content-pipeline (4 typed
