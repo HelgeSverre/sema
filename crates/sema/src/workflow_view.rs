@@ -23,18 +23,30 @@ use tokio::net::{TcpListener, TcpStream};
 const INDEX_HTML: &str = include_str!("workflow_view/index.html");
 const ALPINE_JS: &str = include_str!("workflow_view/alpine.min.js");
 
-/// Serve the viewer for the runs under `run_dir` on `host:port` until interrupted.
+/// Serve the viewer for the runs under `run_dir`, exiting the process on a bind
+/// failure. Used by the standalone `sema workflow view` command.
 pub async fn serve(run_dir: PathBuf, host: &str, port: u16) {
+    if let Err(e) = serve_result(run_dir, host, port, true).await {
+        eprintln!("sema workflow view: {e}");
+        std::process::exit(1);
+    }
+}
+
+/// Serve the viewer, returning a bind error instead of exiting — so an embedded
+/// viewer (`workflow run --view`) can degrade to a warning without killing the run.
+/// `announce` prints the URL on a successful bind.
+pub async fn serve_result(
+    run_dir: PathBuf,
+    host: &str,
+    port: u16,
+    announce: bool,
+) -> std::io::Result<()> {
     let addr = format!("{host}:{port}");
-    let listener = match TcpListener::bind(&addr).await {
-        Ok(l) => l,
-        Err(e) => {
-            eprintln!("sema workflow view: cannot bind {addr}: {e}");
-            std::process::exit(1);
-        }
-    };
-    println!("Sema workflow viewer:  http://{addr}");
-    println!("  runs: {}", run_dir.display());
+    let listener = TcpListener::bind(&addr).await?;
+    if announce {
+        println!("Sema workflow viewer:  http://{addr}");
+        println!("  runs: {}", run_dir.display());
+    }
     loop {
         match listener.accept().await {
             Ok((stream, _)) => {

@@ -429,6 +429,15 @@ enum WorkflowCommands {
         /// Defaults to the project-local `.sema/runs`.
         #[arg(long, default_value = ".sema/runs")]
         run_dir: String,
+
+        /// Also start the live web viewer and keep it open after the run, so you
+        /// can watch the run progress and inspect it afterwards.
+        #[arg(long)]
+        view: bool,
+
+        /// Port for the `--view` viewer.
+        #[arg(short, long, default_value = "8899")]
+        port: u16,
     },
     /// Open the web viewer for a run directory's workflow journals
     View {
@@ -877,12 +886,14 @@ fn main() {
 /// `defworkflow`s and runs it) with the run-directory + args seams wired, then
 /// exit non-zero if the run's `{:status …}` envelope reports failure.
 fn run_workflow_command(command: WorkflowCommands, sandbox: &sema_core::Sandbox) {
-    let (file, args, run_dir) = match command {
+    let (file, args, run_dir, view, view_port) = match command {
         WorkflowCommands::Run {
             file,
             args,
             run_dir,
-        } => (file, args, run_dir),
+            view,
+            port,
+        } => (file, args, run_dir, view, port),
         WorkflowCommands::View {
             run_dir,
             host,
@@ -900,6 +911,37 @@ fn run_workflow_command(command: WorkflowCommands, sandbox: &sema_core::Sandbox)
     // The workflow runtime (sema-workflow) reads this seam to choose the run-dir
     // base; the run lands in `<run-dir>/<run-id>/`.
     std::env::set_var("SEMA_WORKFLOW_RUN_DIR", &run_dir);
+
+    // `--view`: start the live viewer on a background thread BEFORE the run, so the
+    // journal (written flush-per-event) is watchable in real time, and keep it up
+    // afterwards for inspection. A bind failure degrades to a warning (the run still
+    // proceeds). Best-effort open the browser.
+    if view {
+        let vd = run_dir.clone();
+        std::thread::spawn(move || {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create tokio runtime")
+                .block_on(async {
+                    if let Err(e) = workflow_view::serve_result(
+                        PathBuf::from(vd),
+                        "127.0.0.1",
+                        view_port,
+                        false,
+                    )
+                    .await
+                    {
+                        eprintln!("warning: --view could not start the viewer: {e}");
+                    }
+                });
+        });
+        let url = format!("http://127.0.0.1:{view_port}");
+        println!("Live viewer: {url}");
+        open_in_browser(&url);
+        // Give the listener a moment to bind before the run starts producing events.
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
 
     let interpreter = Interpreter::new_with_sandbox(sandbox);
 
@@ -931,7 +973,7 @@ fn run_workflow_command(command: WorkflowCommands, sandbox: &sema_core::Sandbox)
 
     // The file's last form is the `defworkflow` (which expands to `workflow/run`),
     // so eval returns the `{:status …}` envelope; journaling is its side effect.
-    match interpreter.eval_str_compiled(&content) {
+    let exit_code = match interpreter.eval_str_compiled(&content) {
         Ok(envelope) => {
             drain_async_scheduler(&interpreter);
             let failed = envelope
@@ -941,15 +983,43 @@ fn run_workflow_command(command: WorkflowCommands, sandbox: &sema_core::Sandbox)
                 .is_some_and(|s| s == "failed");
             if failed {
                 eprintln!("workflow failed: {}", pretty_print(&envelope, 80));
-                std::process::exit(1);
+                1
+            } else {
+                0
             }
         }
         Err(e) => {
             eprint!("Error running workflow {file}: ");
             print_error(&e);
-            std::process::exit(1);
+            1
+        }
+    };
+
+    // With `--view`, keep the viewer up so the finished run can be inspected.
+    if view {
+        println!("\nRun complete — viewer live at http://127.0.0.1:{view_port}  (Ctrl-C to stop)");
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(3600));
         }
     }
+    std::process::exit(exit_code);
+}
+
+/// Best-effort: open `url` in the default browser via the platform opener. Silent
+/// no-op if the opener isn't present (e.g. headless) — the URL is always printed.
+fn open_in_browser(url: &str) {
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(target_os = "windows") {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    let _ = std::process::Command::new(opener)
+        .arg(url)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
 }
 
 /// Drain any pending async tasks scheduled by a top-level form.
