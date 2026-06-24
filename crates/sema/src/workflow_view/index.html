@@ -43,11 +43,11 @@
     letter-spacing:.3px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .dot-sep{color:var(--text-tertiary);flex:0 0 auto;}
   .run-status{justify-self:center;display:flex;align-items:center;gap:10px;flex:0 0 auto;}
-  .pill{font-size:var(--fs-micro);padding:2px 8px;border:1px solid;letter-spacing:.7px;
+  .pill{font-size:var(--fs-micro);padding:3px 11px;border:1px solid;border-radius:20px;letter-spacing:.7px;
     text-transform:uppercase;font-weight:600;flex:0 0 auto;line-height:1.5;}
-  .pill.running{color:var(--gold);border-color:var(--gold-dim);}
-  .pill.success{color:var(--success);border-color:#33402a;}
-  .pill.failed{color:var(--error);border-color:#4a2828;}
+  .pill.running{color:var(--gold);border-color:var(--gold-dim);background:var(--gold-soft);}
+  .pill.success{color:var(--success);border-color:#33402a;background:rgba(106,153,85,.12);}
+  .pill.failed{color:var(--error);border-color:#4a2828;background:rgba(200,85,85,.12);}
   .elapsed{color:var(--text-secondary);flex:0 0 auto;font-variant-numeric:tabular-nums;}
   .rollup{justify-self:end;color:var(--text-secondary);
     display:flex;gap:8px;align-items:baseline;font-size:var(--fs-small);flex:0 0 auto;white-space:nowrap;}
@@ -439,10 +439,16 @@ function renderPhases(){
     const active = p.start_seq===selPhaseSeq;
     const cls = ["phase", active?"active":"", phaseOpen(p)?"live":"done",
                  phaseHasFail(p)?"has-fail":""].filter(Boolean).join(" ");
+    // Count = agent done/total. A checkpoint-only phase has no agents, so show its
+    // checkpoint count (◇N) instead of a misleading "0/0"; a truly empty phase
+    // (pure side-effects, e.g. Publish) shows no count — just the status glyph.
+    const count = total>0 ? `${done}/${total}`
+                : p.checkpoints.length>0 ? `◇${p.checkpoints.length}`
+                : ``;
     html += `<div class="${cls}" data-seq="${p.start_seq}" data-testid="phase" data-phase-name="${esc(p.phase)}">`+
             pGlyph(p)+
             `<span class="pname ell">${esc(p.phase)}</span>`+
-            `<span class="count tnum">${done}/${total}</span></div>`;
+            `<span class="count tnum" data-testid="phase-count">${count}</span></div>`;
   }
   phasesEl.innerHTML = html;
   phasesEl.querySelectorAll(".phase").forEach(el=>{
@@ -615,7 +621,12 @@ function evGlyph(e){
     case "run.ended":   return `<span class="eg g-ok">${G.ok}</span>`;
     case "phase.started": return `<span class="eg g-run">${G.run}</span>`;
     case "phase.ended":   return `<span class="eg ${e.status==="failed"?"g-fail":"g-ok"}">${e.status==="failed"?G.fail:G.ok}</span>`;
-    case "agent.started": return `<span class="eg g-run pulse">${G.run}</span>`;
+    case "agent.started": {
+      // Only pulse while the agent is genuinely still running; a finished run's
+      // historical agent.started rows must not spin forever.
+      const fin = M.agents.get(e.agent_id)?.status != null;
+      return `<span class="eg g-run${fin ? "" : " pulse"}">${G.run}</span>`;
+    }
     case "agent.result":  return `<span class="eg ${e.status==="failed"?"g-fail":"g-ok"}">${e.status==="failed"?G.fail:G.ok}</span>`;
     case "agent.tool_call": return `<span class="eg g-pend">${G.twig}</span>`;
     case "checkpoint":    return `<span class="eg g-pend">${G.cp}</span>`;

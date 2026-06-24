@@ -76,3 +76,6 @@ mutants.out.old/
 crates/sema/tests/e2e-workflow-view/node_modules/
 crates/sema/tests/e2e-workflow-view/test-results/
 crates/sema/tests/e2e-workflow-view/playwright-report/
+
+# Dynamic-workflow example output
+out/

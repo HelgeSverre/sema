@@ -60,6 +60,36 @@ test('drill-in details: Prompt / Tool calls / Output digest sections', async ({ 
   await expect(drill).toContainText('Output');
 });
 
+test('status pill is on-brand (rounded, brand pill radius)', async ({ page }) => {
+  await open(page);
+  const radius = await page
+    .locator('#status-pill')
+    .evaluate((el) => getComputedStyle(el).borderRadius);
+  expect(parseFloat(radius)).toBeGreaterThanOrEqual(12); // brand "pill" = 20px, not square
+});
+
+test('event stream: finished agents do not pulse; only a live agent does', async ({ page }) => {
+  await open(page);
+  // auditor_1 finished (has agent.result) → its agent.started stream glyph must NOT pulse.
+  const finishedGlyph = page.locator('[data-testid="ev-row"][data-ev-agent="auditor_1"] .eg').first();
+  await expect(finishedGlyph).not.toHaveClass(/pulse/);
+  // reporter_1 is still running (no agent.result) → its glyph DOES pulse.
+  const liveGlyph = page.locator('[data-testid="ev-row"][data-ev-agent="reporter_1"] .eg').first();
+  await expect(liveGlyph).toHaveClass(/pulse/);
+});
+
+test('phase ledger: checkpoint-only phase shows ◇N, not a misleading 0/0', async ({ page }) => {
+  await open(page);
+  // verify is a pure-checkpoint phase (1 checkpoint, 0 agents) → "◇1", never "0/0".
+  const verifyCount = page.locator('[data-testid="phase"][data-phase-name="verify"] [data-testid="phase-count"]');
+  await expect(verifyCount).toHaveText('◇1');
+  await expect(verifyCount).not.toHaveText('0/0');
+  // audit has agents → still the done/total form.
+  await expect(
+    page.locator('[data-testid="phase"][data-phase-name="audit"] [data-testid="phase-count"]')
+  ).toHaveText('3/3');
+});
+
 test('event stream → click jumps to the agent in the detail pane', async ({ page }) => {
   await open(page);
   // The agent.result for auditor_2 (an event-stream row) jumps to auditor_2.
