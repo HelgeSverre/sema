@@ -2,8 +2,7 @@ use std::borrow::Cow;
 
 use reedline::{Prompt, PromptEditMode, PromptHistorySearch, PromptHistorySearchStatus};
 
-/// Matches the prompts the old rustyline REPL printed: `sema> ` on the first
-/// line, `  ... ` for continuation lines.
+/// The REPL prompt: `sema> ` on the first line, `  ... ` for continuation lines.
 pub struct SemaPrompt;
 
 impl Prompt for SemaPrompt {

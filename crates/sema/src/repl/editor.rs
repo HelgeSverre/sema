@@ -28,8 +28,8 @@ pub fn build() -> Reedline {
     );
 
     let mut keybindings = default_emacs_keybindings();
-    // Tab opens (or navigates) the columnar completion menu, matching the
-    // muscle memory from the old rustyline REPL.
+    // Tab opens (or navigates) the columnar completion menu — the conventional
+    // completion keybinding.
     keybindings.add_binding(
         KeyModifiers::NONE,
         KeyCode::Tab,

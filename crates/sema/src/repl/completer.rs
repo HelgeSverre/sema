@@ -90,8 +90,8 @@ fn collect_env(env: &Env, prefix: &str, out: &mut Vec<String>) {
 impl Completer for SemaCompleter {
     fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
         let before = &line[..pos];
-        // Mirror the old rustyline behaviour: a "word" is anything since the
-        // last whitespace or opening bracket / quote.
+        // A completion "word" is anything since the last whitespace or opening
+        // bracket / quote.
         let start = before
             .rfind(|c: char| c.is_whitespace() || c == '(' || c == '[' || c == '{' || c == '\'')
             .map(|i| i + 1)

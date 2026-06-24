@@ -461,7 +461,8 @@ mod tests {
     #[test]
     fn type_error_with_value_does_not_split_multibyte_char() {
         // A value whose display is > 40 bytes with a multi-byte char straddling
-        // byte 39 previously panicked ("byte index 39 is not a char boundary").
+        // byte 39: truncating at a raw byte index would split the char ("byte
+        // index 39 is not a char boundary"), so truncation must land on a boundary.
         let value = Value::string(&format!("x{}", "λ".repeat(40)));
         let e = SemaError::type_error_with_value("map", "string", &value);
         // Must construct without panicking and carry a truncated display.

@@ -31,7 +31,7 @@ mod validator;
 use commands::CommandOutcome;
 use prompt::SemaPrompt;
 
-/// Entry point — replaces the inline `repl()` that used to live in main.rs.
+/// Entry point for the interactive REPL.
 pub fn run(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>) {
     let env = interpreter.global_env.clone();
 
@@ -142,8 +142,7 @@ pub fn run(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>) {
     println!("Goodbye!");
 }
 
-/// Roll `*1` → `*2` → `*3` (most recent first) and store the new value in
-/// `*1`. Matches the old REPL's behaviour exactly.
+/// Roll `*1` → `*2` → `*3` (most recent first) and store the new value in `*1`.
 pub(super) fn rotate_result_slots(env: &sema_core::Env, val: Value) {
     if let Some(v1) = env.get(intern("*1")) {
         if env.get(intern("*2")).is_some() {

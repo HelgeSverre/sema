@@ -18,10 +18,10 @@ mod tests {
     use std::sync::Mutex;
 
     // `SEMA_HOME` is a PROCESS-GLOBAL env var — spawning a thread does NOT isolate
-    // it (the old code did, and these tests raced: one set "/custom/sema" while the
-    // other read it, intermittently failing under parallel/coverage runs). Serialize
-    // the env-mutating sections with a shared lock; poison-tolerant so a panic in
-    // one test doesn't wedge the other.
+    // it, so env-mutating tests race (one sets "/custom/sema" while the other reads
+    // it, intermittently failing under parallel/coverage runs). Serialize the
+    // env-mutating sections with a shared lock; poison-tolerant so a panic in one
+    // test doesn't wedge the other.
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]

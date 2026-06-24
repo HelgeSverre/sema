@@ -2007,7 +2007,7 @@ impl VM {
                         {
                             // Sign-extend to i64 and subtract through Value::int, which
                             // boxes the result when it overflows the 45-bit small-int
-                            // range (the old raw-bit trick truncated past ±2^44).
+                            // range (a raw-bit subtract would truncate past ±2^44).
                             let ax =
                                 (((a_bits & NAN_PAYLOAD_MASK) << SIGN_SHIFT) as i64) >> SIGN_SHIFT;
                             let bx =
@@ -4820,9 +4820,8 @@ mod tests {
     #[test]
     fn call_native_out_of_range_id_errors_not_panics() {
         // A crafted .semac can carry a CALL_NATIVE whose native_id exceeds the
-        // resolved native table. In release builds the old debug_assert! was
-        // compiled out and the bounds-checked index panicked (DoS). It must now
-        // return a SemaError instead.
+        // resolved native table. The bounds check must return a SemaError, not
+        // panic — a debug_assert! alone is compiled out in release builds (DoS).
         use crate::emit::Emitter;
         use crate::opcodes::Op;
         let globals = Rc::new(Env::new());
