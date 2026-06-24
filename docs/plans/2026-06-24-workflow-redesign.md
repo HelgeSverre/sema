@@ -26,6 +26,17 @@ evidence-backed gate.
 - **S5 all-phases-upfront** — `run.started` carries declared `:phases`; the viewer renders
   the whole plan (pending → running → done → skipped). Playwright 10/10.
 
+**Adversarial verification + hardening (post-ship):** a second multi-agent workflow
+re-examined each shipped slice's *committed* code and found **4 real cross-slice bugs**
+the per-slice tests structurally missed — all fixed with regression tests:
+- *budget × failed leaf* (high): a leaf whose call fails re-read the prior leaf's sticky
+  `LAST_USAGE` → phantom budget + double-charge. Fix: `clear_last_usage()` before each leaf.
+- *budget × resume* (high): a tripped cap returned `nil` for memoized leaves. Fix: resume
+  replay moved above the budget latch (a free replay is never refused).
+- *resume × SQLite* (high): the ingester ignored `events.resume-N.jsonl`. Fix: `sync_run`
+  merges all segments; per-seq tables gain a `seg` discriminator.
+- *SQLite concurrency* (low): no `busy_timeout`. Fix: `ingest::open()` sets 3s.
+
 *Deferred (documented defaults taken):* `:schema`+`:tools` compose; per-task usage
 scoping in the scheduler (the real fix for fan-out accounting); the SQLite-backed UI
 rewrite (endpoint is additive, client-side viewer kept); a visible run-picker dropdown.
