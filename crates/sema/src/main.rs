@@ -446,6 +446,13 @@ enum WorkflowCommands {
         #[arg(long)]
         resume: Option<String>,
     },
+    /// Backfill the cross-run SQLite index (`<run-dir>/index.db`) from every run's
+    /// journal — for offline/CI use; the viewer also syncs lazily on request.
+    Index {
+        /// Base directory holding `<run-id>/events.jsonl` run journals.
+        #[arg(long, default_value = ".sema/runs")]
+        run_dir: String,
+    },
     /// Open the web viewer for a run directory's workflow journals
     View {
         /// Base directory holding `<run-id>/events.jsonl` run journals.
@@ -912,6 +919,31 @@ fn run_workflow_command(command: WorkflowCommands, sandbox: &sema_core::Sandbox)
                 .build()
                 .expect("Failed to create tokio runtime")
                 .block_on(workflow_view::serve(PathBuf::from(run_dir), &host, port));
+            return;
+        }
+        WorkflowCommands::Index { run_dir } => {
+            let root = PathBuf::from(&run_dir);
+            match rusqlite::Connection::open(root.join(sema_workflow::INDEX_DB)) {
+                Ok(conn) => {
+                    if let Err(e) = workflow_view::ingest::init_schema(&conn) {
+                        eprintln!("error: index schema: {e}");
+                        std::process::exit(1);
+                    }
+                    workflow_view::ingest::backfill_all(&conn, &root);
+                    match workflow_view::ingest::runs_summary(&conn) {
+                        Ok(rows) => println!(
+                            "indexed {} run(s) → {}",
+                            rows.len(),
+                            root.join(sema_workflow::INDEX_DB).display()
+                        ),
+                        Err(e) => eprintln!("warning: index summary: {e}"),
+                    }
+                }
+                Err(e) => {
+                    eprintln!("error: cannot open index db: {e}");
+                    std::process::exit(1);
+                }
+            }
             return;
         }
     };

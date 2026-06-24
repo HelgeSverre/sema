@@ -23,3 +23,7 @@ pub use journal::Journal;
 /// The CLI overrides the base via the `SEMA_WORKFLOW_RUN_DIR` seam (see
 /// [`context::resolve_runs_root`]).
 pub const RUNS_ROOT: &str = ".sema/runs";
+
+/// Filename of the cross-run SQLite projection index, under the run-dir base
+/// (`<run-dir>/index.db`). One DB indexes every run for the dashboard's cross-run views.
+pub const INDEX_DB: &str = "index.db";

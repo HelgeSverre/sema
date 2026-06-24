@@ -20,6 +20,8 @@ use std::path::{Path, PathBuf};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
+pub mod ingest;
+
 const INDEX_HTML: &str = include_str!("workflow_view/index.html");
 const ALPINE_JS: &str = include_str!("workflow_view/alpine.min.js");
 
@@ -113,6 +115,11 @@ fn route(path: &str, run_dir: &Path) -> (&'static str, &'static str, Vec<u8>) {
             list_runs(run_dir).into_bytes(),
         );
     }
+    // Additive cross-run index (SQLite projection): a rich runs list with status, agent
+    // count, tokens, and NULL-aware cost. Leaves the per-run JSONL routes untouched.
+    if path == "/api/index/runs" {
+        return ("200 OK", "application/json", index_runs_json(run_dir));
+    }
     // /api/run/<id>/<file> — <id> a single safe segment, <file> a whitelisted name.
     if let Some(rest) = path.strip_prefix("/api/run/") {
         if let Some((id, file)) = rest.split_once('/') {
@@ -157,6 +164,21 @@ fn list_runs(run_dir: &Path) -> String {
         .map(|(_, n)| format!("\"{}\"", n.replace('\\', "\\\\").replace('"', "\\\"")))
         .collect();
     format!("[{}]", items.join(","))
+}
+
+/// The cross-run SQLite summary as a JSON array. Opens `<run-dir>/index.db` per request
+/// (open-per-request is fine for a loopback dev tool — no shared-mutex concurrency),
+/// lazily backfills every run, and serializes the rich summary. Degrades to `[]` on any
+/// SQLite error so the endpoint never 500s the viewer.
+fn index_runs_json(run_dir: &Path) -> Vec<u8> {
+    let try_build = || -> rusqlite::Result<Vec<u8>> {
+        let conn = rusqlite::Connection::open(run_dir.join(sema_workflow::INDEX_DB))?;
+        ingest::init_schema(&conn)?;
+        ingest::backfill_all(&conn, run_dir);
+        let rows = ingest::runs_summary(&conn)?;
+        Ok(serde_json::to_vec(&serde_json::Value::Array(rows)).unwrap_or_else(|_| b"[]".to_vec()))
+    };
+    try_build().unwrap_or_else(|_| b"[]".to_vec())
 }
 
 /// A run-id is a single directory segment: no separators, no `..`, non-empty.
