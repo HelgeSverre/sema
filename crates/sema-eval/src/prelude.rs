@@ -141,16 +141,30 @@ pub const PRELUDE: &str = r#"
 ;;
 ;;   (agent "List the auth-relevant files under src/." {:name "scout" :schema [:list :string]})
 ;;   (agent "Summarize the changelog.")                  ; no schema -> returns text
+;; When `:tools [...]` is present the leaf runs the REAL tool loop (via llm/chat,
+;; which owns run_tool_loop) and journals each genuine tool call as an agent.tool_call
+;; event through the `:on-tool-call` callback. v1 returns the loop's final TEXT —
+;; `:schema` does NOT compose with `:tools` yet (deferred). Per-agent budget for a
+;; multi-round tool agent is best-effort (the Budget event reflects the final round's
+;; usage; LAST_USAGE is a single slot — same caveat as fan-out accounting).
 (defmacro agent (prompt . rest)
   (let ((opts-form (if (null? rest) {} (car rest))))
     `(let ((ag-opts# ,opts-form)
            (ag-prompt# ,prompt))
        (workflow/agent ag-opts#
          (fn ()
-           (let ((ag-schema# (get ag-opts# :schema)))
-             (if (nil? ag-schema#)
-               (llm/complete ag-prompt#)
-               (llm/extract ag-schema# ag-prompt#))))))))
+           (let ((ag-schema# (get ag-opts# :schema))
+                 (ag-tools# (get ag-opts# :tools)))
+             (if (not (nil? ag-tools#))
+               ;; tools branch: real run_tool_loop, one agent.tool_call per call.
+               (llm/chat (prompt (user ag-prompt#))
+                 {:tools ag-tools#
+                  :on-tool-call (fn (ev#)
+                                  (when (= (:event ev#) "start")
+                                    (workflow/tool-call (:tool ev#) (:args ev#))))})
+               (if (nil? ag-schema#)
+                 (llm/complete ag-prompt#)
+                 (llm/extract ag-schema# ag-prompt#)))))))))
 
 ;; llm/embed is a SINGLE first-class native function (crates/sema-llm/src/
 ;; builtins.rs) that branches internally on `in_async_context()`: synchronous

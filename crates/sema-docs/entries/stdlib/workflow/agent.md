@@ -17,6 +17,12 @@ emits `agent.started`/`agent.result` plus a per-agent `budget` event, so each in
 becomes a correlated agent row under the current phase. Outside a `workflow/run` the
 journaling is transparent — the LLM call still runs.
 
+With `:tools [...]` (a list of [`deftool`](/docs/special-forms/deftool) values) the leaf
+runs the real multi-round tool loop and journals **each genuine tool call** as an
+`agent.tool_call` event (a tool twig in the drill-in). `:tools` returns the loop's final
+text; it does not compose with `:schema` yet. Per-agent budget for a multi-round tool
+agent is best-effort (the Budget event reflects the final round's usage).
+
 ```sema
 ;; typed: returns the parsed list of strings
 (agent "List the auth-relevant source files under src/."

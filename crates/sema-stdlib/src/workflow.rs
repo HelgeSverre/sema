@@ -312,10 +312,16 @@ pub fn register(env: &sema_core::Env) {
             .ok_or_else(|| SemaError::type_error("keyword or string", args[0].type_name()))?;
         if let Some(ctx) = context::current() {
             if let Some(agent_id) = ctx.cur_agent() {
-                let args_json = args
-                    .get(1)
-                    .and_then(|v| v.as_str().map(|s| s.to_string()))
-                    .unwrap_or_else(|| "gated".to_string());
+                // The args descriptor is a string (the manual demo form) OR a structured
+                // value (the real on-tool-call callback passes the tool's arg map) —
+                // render the latter so args_json carries the real call args, not "gated".
+                let args_json = match args.get(1) {
+                    None => "gated".to_string(),
+                    Some(v) => v
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| capped_render(v)),
+                };
                 ctx.emit(WorkflowEvent::AgentToolCall {
                     seq: ctx.next_seq(),
                     ts: ctx.ts(),

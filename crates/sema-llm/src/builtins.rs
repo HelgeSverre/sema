@@ -1628,6 +1628,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             let mut tools: Vec<Value> = Vec::new();
             let mut tool_mode = "auto".to_string();
             let mut max_tool_rounds = 10usize;
+            let mut on_tool_call: Option<Value> = None;
             let mut conv_scope = ConvScope::default();
 
             if let Some(opts_val) = args.get(1) {
@@ -1638,6 +1639,9 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                     temperature = get_opt_f64(&opts, "temperature");
                     system = get_opt_string(&opts, "system");
                     reasoning_effort = get_opt_effort(&opts, "reasoning-effort");
+                    // A per-tool-call callback (the workflow `agent` macro passes one to
+                    // journal each genuine tool call as an `agent.tool_call` event).
+                    on_tool_call = opts.get(&Value::keyword("on-tool-call")).cloned();
                     if let Some(t) = opts.get(&Value::keyword("tools")).and_then(|v| v.as_seq()) {
                         tools = t.to_vec();
                     }
@@ -1685,7 +1689,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                     &tools,
                     &tool_schemas,
                     max_tool_rounds,
-                    None,
+                    on_tool_call.as_ref(),
                     None,
                     conv_scope,
                 )?;
