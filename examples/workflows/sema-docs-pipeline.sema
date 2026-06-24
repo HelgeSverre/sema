@@ -1,0 +1,104 @@
+;; sema-docs-pipeline.sema — a longer, multi-phase dynamic-workflow showcase.
+;;
+;; Dogfooding + public-safe: Sema drafts, reviews, revises, and assembles short
+;; explainers for its OWN features. Unlike the single-phase content pipeline, this
+;; exercises the whole dashboard — agents in FOUR phases, journaled tool calls
+;; (tool twigs in the drill-in), and a fan-in synthesis step.
+;;
+;;   Topics    inventory of Sema features (deterministic)
+;;   Draft     1 LLM agent per topic — a first-draft explainer       (fan-out)
+;;   Review    1 LLM agent per draft  — a critique + improvement note (fan-out)
+;;   Revise    1 LLM agent per draft  — revise using the critique     (fan-out)
+;;   Assemble  1 LLM agent            — a docs intro over all topics   (fan-in)
+;;   Publish   write out/<slug>.md + out/index.md                     (deterministic)
+;;
+;; Run it live in the dashboard:
+;;   export OPENAI_API_KEY=...
+;;   sema workflow run examples/workflows/sema-docs-pipeline.sema --view
+
+;; A small, fast model: cheap to run, good enough for short explainers, not garbage.
+(llm/configure :openai {:api-key (env "OPENAI_API_KEY") :default-model "gpt-5.4-mini"})
+
+(define topics
+  (list "tail-call optimization"
+        "NaN-boxed values"
+        "the cooperative async scheduler"
+        "pattern matching with match"))
+
+(define (ask prompt) (llm/complete prompt))
+(define (slug s) (string/replace (string/replace (string/lower s) "/" "-") " " "-"))
+(define (drafted? d) (and (map? d) (contains? d :draft)))
+(define (reviewed? r) (and (map? r) (contains? r :notes)))
+(define (revised? r) (and (map? r) (contains? r :body)))
+
+;; --- leaf agents (each journals a representative tool call so the drill-in is rich) ---
+
+(define (write-draft topic)
+  (workflow/agent (str "draft: " topic)
+    (fn ()
+      (workflow/tool-call "recall-spec" topic)
+      {:topic topic
+       :draft (ask (str "Write a 90-word first-draft explainer about the Sema language "
+                        "feature \"" topic "\". Sema is a homoiconic Lisp on a bytecode "
+                        "VM. Mention the feature. Plain prose, no headings."))})))
+
+(define (review-draft d)
+  (workflow/agent (str "review: " (:topic d))
+    (fn ()
+      (workflow/tool-call "read-draft" (:topic d))
+      {:topic (:topic d)
+       :draft (:draft d)
+       :notes (ask (str "In 30 words, critique this draft for accuracy and clarity and "
+                        "suggest ONE concrete improvement.\n\n" (:draft d)))})))
+
+(define (revise r)
+  (workflow/agent (str "revise: " (:topic r))
+    (fn ()
+      {:topic (:topic r)
+       :body (ask (str "Revise the draft using the critique. ~100 words, plain prose, "
+                       "mention the feature.\n\nDRAFT:\n" (:draft r)
+                       "\n\nCRITIQUE:\n" (:notes r)))})))
+
+(defworkflow sema-docs-pipeline
+  "Draft, review, revise, and assemble explainers for Sema's own features."
+  {:args {} :model "gpt-5.4-mini"}
+
+  (phase "Topics"
+    (checkpoint :topics topics))
+
+  (phase "Draft"
+    ;; fan out: <=3 model calls at once; keep only the drafts that came back well-formed.
+    (checkpoint :drafts
+      (filter drafted? (workflow/foreach write-draft (checkpoint :topics) 3))))
+
+  (phase "Review"
+    (checkpoint :reviews
+      (filter reviewed? (workflow/foreach review-draft (checkpoint :drafts) 3))))
+
+  (phase "Revise"
+    (checkpoint :final
+      (filter revised? (workflow/foreach revise (checkpoint :reviews) 3))))
+
+  (phase "Assemble"
+    ;; fan-in: one agent synthesizes a docs intro, recalling each revised draft.
+    (checkpoint :index
+      (workflow/agent "assembler"
+        (fn ()
+          (for-each (fn (f) (workflow/tool-call "recall-draft" (:topic f)))
+                    (checkpoint :final))
+          (ask (str "Write a 60-word introduction for a docs page covering these Sema "
+                    "features: "
+                    (string/join (map (fn (f) (:topic f)) (checkpoint :final)) ", ")
+                    "."))))))
+
+  (phase "Publish"
+    (file/mkdir "out")
+    (for-each (fn (f) (file/write (str "out/" (slug (:topic f)) ".md")
+                                  (str "# " (:topic f) "\n\n" (:body f) "\n")))
+              (checkpoint :final))
+    (file/write "out/index.md" (str "# Sema Features\n\n" (checkpoint :index) "\n")))
+
+  {:status :success
+   :topics    (count (checkpoint :topics))
+   :reviewed  (count (checkpoint :reviews))
+   :published (count (checkpoint :final))})

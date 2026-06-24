@@ -65,6 +65,9 @@ pub struct WorkflowCtx {
     cur_phase_seq: Cell<Option<u64>>,
     /// Per-name agent invocation counter, for minting unique `agent_id`s.
     agent_n: RefCell<BTreeMap<String, u64>>,
+    /// The `agent_id` of the agent currently executing (set by `workflow/agent`), so
+    /// `workflow/tool-call` can attribute a tool call to it. `None` outside an agent.
+    cur_agent_id: RefCell<Option<String>>,
     /// The run's `--args` JSON string (for the run.started event). Empty if none.
     args_json: String,
     /// Cached fixed-ts override (read once at construction). `Some` ⇒ deterministic
@@ -102,6 +105,7 @@ impl WorkflowCtx {
             budget,
             cur_phase_seq: Cell::new(None),
             agent_n: RefCell::new(BTreeMap::new()),
+            cur_agent_id: RefCell::new(None),
             args_json,
             fixed_ts,
         })
@@ -129,6 +133,17 @@ impl WorkflowCtx {
         let n = m.entry(name.to_string()).or_insert(0);
         *n += 1;
         format!("{name}_{n}")
+    }
+
+    /// Set (or clear) the agent currently executing, so `workflow/tool-call` can
+    /// attribute to it. Set on `workflow/agent` entry, cleared on exit.
+    pub fn set_cur_agent(&self, agent_id: Option<String>) {
+        *self.cur_agent_id.borrow_mut() = agent_id;
+    }
+
+    /// The `agent_id` of the executing agent, if inside one.
+    pub fn cur_agent(&self) -> Option<String> {
+        self.cur_agent_id.borrow().clone()
     }
 
     /// A stable short resume key for a checkpoint (`ck_<hex>` over key + digest).

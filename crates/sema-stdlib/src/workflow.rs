@@ -192,7 +192,11 @@ pub fn register(env: &sema_core::Env) {
             model: String::new(), // unknown until the call completes (filled below)
         });
         let start = Instant::now();
+        // Mark this as the current agent so `workflow/tool-call` inside the thunk
+        // attributes to it; clear afterwards.
+        ctx.set_cur_agent(Some(agent_id.clone()));
         let result = crate::list::call_function(thunk, &[]);
+        ctx.set_cur_agent(None);
         let dur_ms = if ctx.deterministic() {
             0
         } else {
@@ -233,6 +237,34 @@ pub fn register(env: &sema_core::Env) {
             });
         }
         result
+    });
+
+    // (workflow/tool-call tool-name [args]) — journal a tool call by the current
+    // agent (the dashboard renders these as tool twigs in the agent's drill-in).
+    // No-op (returns nil) outside a workflow/agent. `args` is an opaque/gated
+    // descriptor; pass a string or omit for the "gated" sentinel.
+    crate::register_fn(env, "workflow/tool-call", |args| {
+        if args.is_empty() || args.len() > 2 {
+            return Err(SemaError::arity("workflow/tool-call", "1-2", args.len()));
+        }
+        let tool_name = as_name(&args[0])
+            .ok_or_else(|| SemaError::type_error("keyword or string", args[0].type_name()))?;
+        if let Some(ctx) = context::current() {
+            if let Some(agent_id) = ctx.cur_agent() {
+                let args_json = args
+                    .get(1)
+                    .and_then(|v| v.as_str().map(|s| s.to_string()))
+                    .unwrap_or_else(|| "gated".to_string());
+                ctx.emit(WorkflowEvent::AgentToolCall {
+                    seq: ctx.next_seq(),
+                    ts: ctx.ts(),
+                    agent_id,
+                    tool_name,
+                    args_json,
+                });
+            }
+        }
+        Ok(Value::nil())
     });
 
     // (checkpoint :k v) records+returns v and emits a checkpoint event;
