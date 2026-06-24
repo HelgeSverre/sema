@@ -1,5 +1,22 @@
 # Dynamic Workflows — De-risking Addendum & Spike Specs
 
+> ## ⚑ SPIKE 1 SHIPPED 2026-06-24 (branch `feat/dynamic-workflows-spike1`)
+>
+> The sequential runtime + frozen JSONL journal is built and its acceptance oracle is GREEN.
+> - New leaf crate `crates/sema-workflow` (`event.rs` frozen `WorkflowEvent` enum, `journal.rs`
+>   append-only JSONL writer + sidecars, `context.rs` run-scoped `WorkflowCtx` + panic-safe guard +
+>   fixed-ts/run-id test seam). Deps: `sema-core` + `sema-otel` + serde + md5 (NOT `sema-eval`).
+> - Builtins `workflow/run`/`workflow/phase`/`checkpoint` in `sema-stdlib/src/workflow.rs` (pass-through
+>   `{:status …}` envelope); prelude macros `defworkflow`/`phase`.
+> - CLI `sema workflow run <file> --args <json> --run-dir <dir>`; run-dir is project-local `.sema/runs`.
+> - Gate: `crates/sema/tests/workflow_spike1_test.rs` (byte-identical golden `hello-wf.events.jsonl`,
+>   run-twice-identical, seq-monotonic, phase-order, checkpoint read-back Inventory→Audit). Negative
+>   oracle verified. `make lint` green.
+> - **Release-procedure note:** added a 14th inter-crate version pin (`sema-workflow`), so the CLAUDE.md
+>   `grep -c` invariant moves 13→14 pins (15 total `=X.Y.Z`/version lines). Update it on the next cut.
+> - The events.jsonl event-name set is now FROZEN (downstream dashboard/SQLite read it). Next: **Spike 2**
+>   (cassette-backed `audit-auth` demo; its first step is the H2 `compute_cache_key` anti-collision fix).
+
 **Status:** De-risking addendum (2026-06-23) to `docs/plans/2026-06-21-dynamic-workflows-scoping.md`.
 Code-grounded. Every claim cites a `file:symbol` I actually read at the stated commit state.
 Audience: the repo owner, building from this for a full day.
