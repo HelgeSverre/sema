@@ -6,11 +6,16 @@
 ;; (tool twigs in the drill-in), and a fan-in synthesis step.
 ;;
 ;;   Topics    inventory of Sema features (deterministic)
-;;   Draft     1 LLM agent per topic — a first-draft explainer       (fan-out)
-;;   Review    1 LLM agent per draft  — a critique + improvement note (fan-out)
-;;   Revise    1 LLM agent per draft  — revise using the critique     (fan-out)
+;;   Draft     1 LLM agent per topic — a first-draft explainer       (pipeline fan-out)
+;;   Review    1 LLM agent per draft  — a critique + improvement note (pipeline fan-out)
+;;   Revise    1 LLM agent per draft  — revise using the critique     (pipeline fan-out)
 ;;   Assemble  1 LLM agent            — a docs intro over all topics   (fan-in)
 ;;   Publish   write out/<slug>.md + out/index.md                     (deterministic)
+;;
+;; Written in the workflow.js-style surface: marker phases, lexical `def` threading,
+;; and `pipeline` fan-out. The leaf agents stay on the lower-level `workflow/agent`
+;; wrapper because they journal a representative `workflow/tool-call` (tool twigs in
+;; the drill-in) — until real tool-using agents land, that's the richer-leaf path.
 ;;
 ;; Run it live in the dashboard:
 ;;   export OPENAI_API_KEY=...
@@ -61,44 +66,41 @@
 
 (defworkflow sema-docs-pipeline
   "Draft, review, revise, and assemble explainers for Sema's own features."
-  {:args {} :model "gpt-5.4-mini"}
+  {:phases ["Topics" "Draft" "Review" "Revise" "Assemble" "Publish"] :args {}}
 
-  (phase "Topics"
-    (checkpoint :topics topics))
+  (phase "Topics")
+  (def chosen topics)
 
-  (phase "Draft"
-    ;; fan out: <=3 model calls at once; keep only the drafts that came back well-formed.
-    (checkpoint :drafts
-      (filter drafted? (workflow/foreach write-draft (checkpoint :topics) 3))))
+  (phase "Draft")
+  ;; fan out: <=8 model calls at once; keep only the drafts that came back well-formed.
+  ;; `pipeline` yields nil for a failed leaf, which drafted? drops.
+  (def drafts (filter drafted? (pipeline chosen (fn (t) (write-draft t)))))
 
-  (phase "Review"
-    (checkpoint :reviews
-      (filter reviewed? (workflow/foreach review-draft (checkpoint :drafts) 3))))
+  (phase "Review")
+  (def reviews (filter reviewed? (pipeline drafts (fn (d) (review-draft d)))))
 
-  (phase "Revise"
-    (checkpoint :final
-      (filter revised? (workflow/foreach revise (checkpoint :reviews) 3))))
+  (phase "Revise")
+  (def final (filter revised? (pipeline reviews (fn (r) (revise r)))))
 
-  (phase "Assemble"
-    ;; fan-in: one agent synthesizes a docs intro, recalling each revised draft.
-    (checkpoint :index
-      (workflow/agent "assembler"
-        (fn ()
-          (for-each (fn (f) (workflow/tool-call "recall-draft" (:topic f)))
-                    (checkpoint :final))
-          (ask (str "Write a 60-word introduction for a docs page covering these Sema "
-                    "features: "
-                    (string/join (map (fn (f) (:topic f)) (checkpoint :final)) ", ")
-                    "."))))))
+  (phase "Assemble")
+  ;; fan-in: one agent synthesizes a docs intro, recalling each revised draft.
+  (def index
+    (workflow/agent {:name "assembler"}
+      (fn ()
+        (for-each (fn (f) (workflow/tool-call "recall-draft" (:topic f))) final)
+        (ask (str "Write a 60-word introduction for a docs page covering these Sema "
+                  "features: "
+                  (string/join (map (fn (f) (:topic f)) final) ", ")
+                  ".")))))
 
-  (phase "Publish"
-    (file/mkdir "out")
-    (for-each (fn (f) (file/write (str "out/" (slug (:topic f)) ".md")
-                                  (str "# " (:topic f) "\n\n" (:body f) "\n")))
-              (checkpoint :final))
-    (file/write "out/index.md" (str "# Sema Features\n\n" (checkpoint :index) "\n")))
+  (phase "Publish")
+  (file/mkdir "out")
+  (for-each (fn (f) (file/write (str "out/" (slug (:topic f)) ".md")
+                                (str "# " (:topic f) "\n\n" (:body f) "\n")))
+            final)
+  (file/write "out/index.md" (str "# Sema Features\n\n" index "\n"))
 
   {:status :success
-   :topics    (count (checkpoint :topics))
-   :reviewed  (count (checkpoint :reviews))
-   :published (count (checkpoint :final))})
+   :topics    (count chosen)
+   :reviewed  (count reviews)
+   :published (count final)})
