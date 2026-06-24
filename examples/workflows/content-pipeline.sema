@@ -17,7 +17,9 @@
 ;; write-article LLM leaf is probabilistic — exactly the workflow value proposition.
 
 ;; A small, fast model: good enough for short explainers, cheap to run, not garbage.
-(define model {:provider :openai :model "gpt-5.4-mini"})
+;; Self-configure OpenAI (reads OPENAI_API_KEY from the environment) and make it the
+;; default provider, so the workflow runs the same way regardless of the launcher.
+(llm/configure :openai {:api-key (env "OPENAI_API_KEY") :default-model "gpt-5.4-mini"})
 
 ;; The inventory — Sema's own features. (Made-up showcase content about the language.)
 (define topics
@@ -29,7 +31,9 @@
     "pattern matching with match"))
 
 (define (slug s)
-  (string/replace (string/lower s) " " "-"))
+  ;; lowercase, and turn both spaces and slashes into dashes so the filename never
+  ;; implies a missing subdirectory (e.g. "async/pool-map …" -> "async-pool-map-…").
+  (string/replace (string/replace (string/lower s) "/" "-") " " "-"))
 
 (define (article-prompt topic)
   (str "Write a concise 120-word explainer for a developer audience about the "
@@ -45,7 +49,7 @@
   (workflow/agent topic
     (fn ()
       {:title topic
-       :body (llm/complete (article-prompt topic) model)})))
+       :body (llm/complete (article-prompt topic))})))
 
 ;; A well-formed article: has a non-empty body that actually mentions the feature.
 (define (good-article? a)
