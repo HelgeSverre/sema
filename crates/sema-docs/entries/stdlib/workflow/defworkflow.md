@@ -5,15 +5,24 @@ section: "Dynamic Workflows"
 syntax: "(defworkflow name doc meta body ...)"
 ---
 
-Macro: define and run a sequential, journaled workflow. `(defworkflow name "doc" meta body…)` expands to `(workflow/run "name" "doc" meta (lambda () body…))` — so the form *is* the run: it opens the run directory, journals every event, and returns the `{:status …}` envelope. `meta` is a metadata map (`{:args … :budget … :perms …}`) recorded into `metadata.json`. The body is ordinary Sema code, conventionally a sequence of [`phase`](/docs/stdlib/workflow/phase) scopes ending in a `{:status …}` map. Keeping `defworkflow` a prelude macro leaves the VM untouched.
+Macro: define and run a sequential, journaled workflow. `(defworkflow name "doc" meta body…)` expands to `(workflow/run "name" "doc" meta (lambda () body…))` — so the form *is* the run: it opens the run directory, journals every event, and returns the `{:status …}` envelope. `meta` is a metadata map (`{:args … :budget … :perms …}`) recorded into `metadata.json`; list `:phases` so the dashboard can show them before they start. The body is ordinary Sema code — a flat sequence of forms with [`phase`](/docs/stdlib/workflow/phase) **markers** interleaved, ending in a `{:status …}` map. Shared values flow through ordinary `def`; [`agent`](/docs/stdlib/workflow/agent) leaves return typed data that [`pipeline`](/docs/stdlib/concurrency/pipeline)/[`parallel`](/docs/stdlib/concurrency/parallel) fan out. Keeping `defworkflow` a prelude macro leaves the VM untouched.
 
 ```sema
 (defworkflow audit-auth
   "Audit a codebase for missing authorization checks."
-  {:args {:paths [:list :string]}}
-  (phase "Inventory" (checkpoint :files (list "a.php" "b.php")))
-  (phase "Audit"     (checkpoint :findings (count (checkpoint :files))))
-  {:status :success :findings (checkpoint :findings)})
+  {:phases ["Inventory" "Audit" "Report"]}
+
+  (phase "Inventory")
+  (def files (agent "List auth-relevant files under src/." {:schema [:list :string]}))
+
+  (phase "Audit")
+  (def findings
+    (pipeline files
+      (fn (f) (agent (str "Audit " f) {:schema finding}))
+      (fn (x) (agent (str "Verify " (:claim x)) {:schema verdict}))))
+
+  (phase "Report")
+  {:status :success :confirmed (filter (fn (x) (:real x)) findings)})
 ```
 
 Run a workflow file with `sema workflow run <file> --args <json>`.

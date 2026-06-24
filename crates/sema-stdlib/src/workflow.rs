@@ -27,6 +27,18 @@ fn as_name(v: &Value) -> Option<String> {
     v.as_keyword().or_else(|| v.as_str().map(|s| s.to_string()))
 }
 
+/// Resolve an agent's role label from the `workflow/agent` first argument: the `:name`
+/// of an opts map, or a bare keyword/string label, falling back to "agent".
+fn agent_role(v: &Value) -> String {
+    if let Some(m) = v.as_map_rc() {
+        if let Some(name) = m.get(&Value::keyword("name")).and_then(as_name) {
+            return name;
+        }
+        return "agent".to_string();
+    }
+    as_name(v).unwrap_or_else(|| "agent".to_string())
+}
+
 /// Render a value for the journal so the dashboard can show the real data, capped
 /// (char-boundary safe) so one huge value can't bloat a journal line.
 fn capped_render(v: &Value) -> String {
@@ -57,6 +69,22 @@ fn success_envelope(value: Value) -> Value {
     m.insert(Value::keyword("status"), Value::keyword("success"));
     m.insert(Value::keyword("value"), value);
     Value::map(m)
+}
+
+/// Close the currently-open marker phase, if any, emitting its `phase.ended` with the
+/// given status. No-op when no phase is open (a workflow with no `(phase …)` markers,
+/// or after the last phase already closed). Called both by the `(phase …)` marker (to
+/// close the prior phase) and by `workflow/run` at the run end (to close the last one).
+fn close_open_phase(ctx: &sema_workflow::context::WorkflowCtx, status: &str) {
+    if let Some((_seq, label)) = ctx.take_open_phase() {
+        ctx.emit(WorkflowEvent::PhaseEnded {
+            seq: ctx.next_seq(),
+            ts: ctx.ts(),
+            phase: label,
+            status: status.into(),
+            dur_ms: ctx.dur_ms(), // 0 under the fixed-ts seam
+        });
+    }
 }
 
 fn failed_envelope(msg: &str) -> Value {
@@ -117,6 +145,9 @@ pub fn register(env: &sema_core::Env) {
         };
 
         if let Some(ctx) = context::current() {
+            // Close the last open marker phase before run.ended (its status mirrors the
+            // run: a phase still open when the body errored is itself "failed").
+            close_open_phase(&ctx, status);
             ctx.emit(WorkflowEvent::RunEnded {
                 seq: ctx.next_seq(),
                 ts: ctx.ts(),
@@ -137,11 +168,13 @@ pub fn register(env: &sema_core::Env) {
         Ok(envelope)
     });
 
-    // (workflow/phase label thunk) — journaled labeled scope. Emits phase.ended on BOTH
-    // the Ok and Err paths, ordered BEFORE propagating the Err (per the spec sketch).
+    // (workflow/phase label) — a MARKER (workflow.js semantics), not a wrapper. Closes
+    // the previously-open phase (emitting its phase.ended) then opens `label`. The
+    // checkpoints/agents that follow attribute to this phase until the next marker or
+    // the run end (`workflow/run` closes the last open phase). Returns nil.
     crate::register_fn(env, "workflow/phase", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("workflow/phase", "2", args.len()));
+        if args.len() != 1 {
+            return Err(SemaError::arity("workflow/phase", "1", args.len()));
         }
         let label = args[0]
             .as_str()
@@ -150,32 +183,19 @@ pub fn register(env: &sema_core::Env) {
         let ctx = context::current()
             .ok_or_else(|| SemaError::eval("workflow/phase outside a workflow/run"))?;
 
+        // Reaching a new marker means the prior phase completed successfully.
+        close_open_phase(&ctx, "success");
+
         // The phase.started seq IS the phase's start_seq — the key checkpoints and
         // agents attribute to (so the dashboard nests them under this phase).
         let phase_seq = ctx.next_seq();
-        ctx.set_phase(phase_seq);
+        ctx.open_phase(phase_seq, label.clone());
         ctx.emit(WorkflowEvent::PhaseStarted {
             seq: phase_seq,
             ts: ctx.ts(),
-            phase: label.clone(),
-        });
-
-        // Dispatches into the SAME VM. Sema errors are Result-valued, so the dominant
-        // failure mode is an Err short-circuit, NOT a Rust panic.
-        let result = crate::list::call_function(&args[1], &[]);
-        let status = if result.is_ok() { "success" } else { "failed" };
-
-        ctx.emit(WorkflowEvent::PhaseEnded {
-            seq: ctx.next_seq(),
-            ts: ctx.ts(),
             phase: label,
-            status: status.into(),
-            dur_ms: ctx.dur_ms(), // 0 under the fixed-ts seam
         });
-
-        // Propagate Ok OR Err AFTER phase.ended is journaled. The phase body's last
-        // value flows out unchanged (the enclosing workflow/run wraps it in :value).
-        result
+        Ok(Value::nil())
     });
 
     // (workflow/agent label thunk) — run a leaf (typically an LLM/tool call) as a
@@ -187,8 +207,9 @@ pub fn register(env: &sema_core::Env) {
         if args.len() != 2 {
             return Err(SemaError::arity("workflow/agent", "2", args.len()));
         }
-        let label = as_name(&args[0])
-            .ok_or_else(|| SemaError::type_error("keyword or string", args[0].type_name()))?;
+        // First arg is the agent role: an opts map `{:name "scout" …}` (the `agent`
+        // macro form), or a bare keyword/string label. Default role is "agent".
+        let label = agent_role(&args[0]);
         let thunk = &args[1];
         let Some(ctx) = context::current() else {
             // Outside a run: transparent — just call the thunk.

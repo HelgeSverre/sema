@@ -4,12 +4,19 @@ module: "workflow"
 section: "Dynamic Workflows"
 ---
 
-Run a labeled, journaled scope inside a workflow body. `(workflow/phase label thunk)` emits a `phase.started` event, evaluates `thunk`, then emits `phase.ended` (with `status` `"success"`/`"failed"`) — the end event is journaled even when the body errors, before the error propagates. A phase is a journaling boundary, not control flow; it returns the body's last value unchanged. Usually written via the [`phase`](/docs/stdlib/workflow/phase) macro.
+Open a journaled phase **marker** inside a workflow body (not a wrapper, not control
+flow). `(workflow/phase label)` closes the previously-open phase — emitting its
+`phase.ended` — then emits `phase.started` for `label`; the checkpoints and agents that
+follow attribute to this phase until the next `(workflow/phase …)` or the run end (which
+`workflow/run` closes automatically). Returns `nil`. Usually written via the
+[`phase`](/docs/stdlib/workflow/phase) macro.
 
 ```sema
-(phase "Audit"
-  (let ((files (checkpoint :files)))
-    (checkpoint :findings (count files))))
+(phase "Inventory")
+(checkpoint :files (list "a.php" "b.php" "c.php"))
+
+(phase "Audit")                       ; closes "Inventory", opens "Audit"
+(checkpoint :findings (count (checkpoint :files)))
 ```
 
 See also: `phase`, `workflow/run`, `checkpoint`.

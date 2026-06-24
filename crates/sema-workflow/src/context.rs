@@ -63,6 +63,10 @@ pub struct WorkflowCtx {
     /// `start_seq` of the currently-open phase (the phase.started event's seq), so
     /// checkpoints/agents/budget events can be attributed to their phase.
     cur_phase_seq: Cell<Option<u64>>,
+    /// Label of the currently-open phase, paired with `cur_phase_seq`. Marker-style
+    /// phases need the label to emit the matching `phase.ended` when the next marker
+    /// (or the run end) closes the phase.
+    cur_phase_label: RefCell<Option<String>>,
     /// Per-name agent invocation counter, for minting unique `agent_id`s.
     agent_n: RefCell<BTreeMap<String, u64>>,
     /// The `agent_id` of the agent currently executing (set by `workflow/agent`), so
@@ -104,6 +108,7 @@ impl WorkflowCtx {
             start: Instant::now(),
             budget,
             cur_phase_seq: Cell::new(None),
+            cur_phase_label: RefCell::new(None),
             agent_n: RefCell::new(BTreeMap::new()),
             cur_agent_id: RefCell::new(None),
             args_json,
@@ -116,10 +121,21 @@ impl WorkflowCtx {
         &self.args_json
     }
 
-    /// Mark the currently-open phase (its `phase.started` seq). Subsequent
-    /// checkpoints / agents / budget events attribute to it.
-    pub fn set_phase(&self, start_seq: u64) {
+    /// Open a marker-style phase: record its `phase.started` seq AND label so the next
+    /// marker (or the run end) can emit the matching `phase.ended`. Subsequent
+    /// checkpoints / agents / budget events attribute to `start_seq`.
+    pub fn open_phase(&self, start_seq: u64, label: String) {
         self.cur_phase_seq.set(Some(start_seq));
+        *self.cur_phase_label.borrow_mut() = Some(label);
+    }
+
+    /// Close the currently-open phase, returning its `(start_seq, label)` so the caller
+    /// can emit `phase.ended`. Clears the open-phase tracking; returns `None` when no
+    /// phase is open (e.g. a workflow with no `(phase …)` markers).
+    pub fn take_open_phase(&self) -> Option<(u64, String)> {
+        let label = self.cur_phase_label.borrow_mut().take()?;
+        let seq = self.cur_phase_seq.replace(None);
+        seq.map(|s| (s, label))
     }
 
     /// `start_seq` of the open phase, if any.

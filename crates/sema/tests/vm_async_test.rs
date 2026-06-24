@@ -1176,34 +1176,44 @@ fn awaiting_cancelled_promise_reports_cancellation_distinctly() {
     );
 }
 
-// === workflow/foreach — bounded parallel fan-out (Spike 3) ===
+// === parallel / pipeline — bounded fan-out combinators (workflow.js semantics) ===
 
-// ORDER: results line up with INPUT order even though completion order is reversed
-// (leaf i sleeps (8-i)*5ms, so item 7 finishes first, item 0 last).
+// pipeline preserves INPUT order even though completion order is reversed (leaf i
+// sleeps (8-i)*5ms, so item 7 finishes first, item 0 last).
 #[test]
-fn workflow_foreach_preserves_input_order() {
+fn pipeline_preserves_input_order() {
     assert_eq!(
         eval(
-            r#"(workflow/foreach
-                  (fn (i) (begin (async/sleep (* (- 8 i) 5)) i))
-                  (list 0 1 2 3 4 5 6 7) 3)"#
+            r#"(pipeline (list 0 1 2 3 4 5 6 7)
+                  (fn (i) (begin (async/sleep (* (- 8 i) 5)) i)))"#
         ),
         common::eval(r#"'(0 1 2 3 4 5 6 7)"#)
     );
 }
 
-// ERROR-TAGGING: a throwing item does NOT abort the batch — its slot becomes a
-// {:status :failed} map while siblings succeed (unlike async/pool-map, which
-// re-raises and kills the whole batch on the first failure).
+// pipeline threads each item through MULTIPLE stages; a stage that throws drops THAT
+// item to nil (skipping its remaining stages) without aborting the batch.
 #[test]
-fn workflow_foreach_tags_failures_without_aborting() {
+fn pipeline_stages_and_nil_on_failure() {
     assert_eq!(
         eval(
-            r#"(let ((r (workflow/foreach
-                          (fn (i) (if (= i 1) (throw "boom") (* i 10)))
-                          (list 0 1 2) 2)))
-                 (list (nth r 0) (:status (nth r 1)) (nth r 2)))"#
+            r#"(pipeline (list 0 1 2)
+                  (fn (i) (if (= i 1) (throw "boom") i))
+                  (fn (x) (* x 10)))"#
         ),
-        common::eval(r#"'(0 :failed 20)"#)
+        // nil must be the real nil value, so build the expected list unquoted.
+        common::eval(r#"(list 0 nil 20)"#)
+    );
+}
+
+// parallel runs a list of zero-arg thunks concurrently (barrier), results in input
+// order; a throwing thunk yields nil rather than aborting the batch.
+#[test]
+fn parallel_runs_thunks_nil_on_failure() {
+    assert_eq!(
+        eval(
+            r#"(parallel (list (fn () 1) (fn () (throw "boom")) (fn () 3)))"#
+        ),
+        common::eval(r#"(list 1 nil 3)"#)
     );
 }

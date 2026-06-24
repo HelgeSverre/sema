@@ -4,15 +4,26 @@ module: "workflow"
 section: "Dynamic Workflows"
 ---
 
-Run a leaf step (typically an LLM or tool call) as a journaled **agent**: `(workflow/agent label thunk)` emits an `agent.started` event before the thunk and an `agent.result` event after (with an opaque output digest + duration), so the workflow dashboard renders it as an agent row under the current phase. Returns the thunk's value, or propagates its error after journaling the result. Outside a `workflow/run` it is transparent — it just calls the thunk. Compose it inside `workflow/foreach` to make a fanned-out set of leaves show up as sibling agent rows.
+Run a leaf step as a journaled **agent**: `(workflow/agent role thunk)` emits an
+`agent.started` event before the thunk, an `agent.result` after (output + duration), and a
+per-agent `budget` event, so the dashboard renders it as a correlated agent row under the
+current phase. `role` is an opts map (`{:name "scout" …}`) or a bare label; the default
+role is `"agent"`. Returns the thunk's value, or propagates its error after journaling the
+result. Outside a `workflow/run` it is transparent — it just calls the thunk.
+
+This is the journaling wrapper; the [`agent`](/docs/stdlib/workflow/agent) macro is the
+ergonomic surface (it supplies the LLM-call thunk and handles `:schema`). Compose it
+inside [`pipeline`](/docs/stdlib/concurrency/pipeline) or
+[`parallel`](/docs/stdlib/concurrency/parallel) to make a fanned-out set of leaves show up
+as sibling agent rows.
 
 ```sema
-(define (write-article topic)
-  (workflow/agent topic
-    (fn () {:title topic
-            :body  (llm/complete (str "Explain " topic) {:model "gpt-5.4-mini"})})))
+;; usually written as the `agent` macro:
+(agent (str "Explain " topic) {:name "writer" :schema article})
 
-(workflow/foreach write-article topics 4)   ; N agent rows, <=4 at once
+;; the macro expands to the wrapper around an LLM-call thunk:
+(workflow/agent {:name "writer"}
+  (fn () (llm/extract article (str "Explain " topic))))
 ```
 
-See also: `workflow/foreach`, `workflow/run`, `checkpoint`.
+See also: `agent`, `pipeline`, `workflow/run`, `checkpoint`.

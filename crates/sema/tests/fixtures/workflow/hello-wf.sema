@@ -21,14 +21,16 @@
   "Two-phase sequential demo workflow (Inventory -> Audit)."
   {:args {:name :string}}
 
-  (phase "Inventory"
-    ;; Deterministic, sorted list — NOT a dir walk (O16: unsorted iteration drifts).
-    (checkpoint :files (list "a.php" "b.php" "c.php")))
+  ;; Marker phases (workflow.js style): `(phase …)` opens a phase; the forms after it
+  ;; belong to that phase until the next marker or the run end.
+  (phase "Inventory")
+  ;; Deterministic, sorted list — NOT a dir walk (O16: unsorted iteration drifts).
+  (checkpoint :files (list "a.php" "b.php" "c.php"))
 
-  (phase "Audit"
-    ;; Read the value recorded in Inventory; (checkpoint :files) with one arg READS.
-    (let ((files (checkpoint :files)))
-      (checkpoint :findings (count files))))
+  (phase "Audit")
+  ;; Read the value recorded in Inventory; (checkpoint :files) with one arg READS.
+  (let ((files (checkpoint :files)))
+    (checkpoint :findings (count files)))
 
   ;; Final discriminated-union envelope. `workflow/run` (which `defworkflow`
   ;; expands to) returns this {:status …} map verbatim and emits run.ended; the
