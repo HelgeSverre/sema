@@ -211,9 +211,38 @@ fn workflow_phase(args: &[Value]) -> Result<Value, SemaError> {
 
 ---
 
-### Spike 2 — Cassette-backed `audit-auth` demo (the offline-CI oracle)
+### Spike 2 — Cassette-backed demo (the offline-CI oracle)
 
-**Goal.** Ship `audit-auth.sema` (inventory → audit → verify → report) over a fixture repo with N=3 known missing-auth findings, replayed deterministically and green in CI with no key, driven by the **already-shipped** cassette layer (`crates/sema-llm/src/cassette.rs`). Load-bearing de-risk: prove `compute_cache_key` (`builtins.rs:4475`) does NOT collide across tool-loop rounds.
+> **DEMO SUBJECT DECIDED 2026-06-24 (owner): a self-contained "Sema content factory", NOT `audit-auth`.**
+> Mined from the owner's real workflow usage (`docs/plans/` research: he repeatedly runs
+> inventory→generate-each→verify→write content pipelines — `crescat-seo` ~100-keyword article factory,
+> `agent-analyzer` per-project AI Build Log, ebook generators). The generic `audit-auth` repo-audit is
+> replaced by an **SEO/explainer content pipeline whose subject matter is Sema itself** — bespoke,
+> made-up content *about the language* (feature explainers / "why Sema" blurbs). Rationale: it must work
+> for **everyone** and divulge **no private or Crescat-internal data**, so the topics are Sema features
+> (public, dogfooding: Sema generating its own content). Same clean shape, public-safe, cassette-able.
+>
+> **Concrete shape** (`examples/workflows/content-pipeline.sema`):
+> - **Inventory** (deterministic): a checked-in `topics` list of ~6 Sema features (e.g. "tail-call
+>   optimization", "NaN-boxed values", "the cooperative scheduler", "f-strings", "async/pool-map",
+>   "pattern matching").
+> - **Write** (LLM leaf, parallel `workflow/foreach`, bounded concurrency): one short explainer article
+>   per topic → `{:title :body}`.
+> - **Verify** (per-item gate): schema-validate (`:title`+`:body` non-empty) and a cheap accuracy check
+>   (article mentions the feature name); regenerate-on-fail (Spike 3's repair loop) or drop with a
+>   `{:status :failed}` finding.
+> - **Publish** (deterministic): write `out/<slug>.md`, return `{:status :success :written N}`.
+> - Live: real LLM. CI: replayed from a committed cassette (`crates/sema-llm/src/cassette.rs`) →
+>   deterministic, no key, byte-stable. This is the offline acceptance oracle.
+>
+> The load-bearing de-risk below (H2 `compute_cache_key` anti-collision) is unchanged — the content
+> pipeline still exercises multi-call cassette replay. The `audit-auth` framing in the rest of this
+> section is superseded by the content pipeline; the cassette/key mechanics still apply verbatim.
+
+**Goal.** Ship `content-pipeline.sema` (inventory → write-each → verify → publish) over a checked-in
+topic list, replayed deterministically and green in CI with no key, driven by the **already-shipped**
+cassette layer (`crates/sema-llm/src/cassette.rs`). Load-bearing de-risk: prove `compute_cache_key`
+(`builtins.rs:4475`) does NOT collide across repeated/similar LLM calls.
 
 **Concrete steps.**
 - Depends on Spike 1's `defworkflow`/`phase`/`checkpoint`/`{:status}` (verified absent today — no `sema-workflow` crate). If Spike 1 isn't done, build its minimal slice first.
