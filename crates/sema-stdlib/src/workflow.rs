@@ -89,6 +89,7 @@ pub fn register(env: &sema_core::Env) {
                 workflow: name.clone(),
                 run_id: ctx.run_id(),
                 code_version: String::new(),
+                args_json: ctx.args_json().to_string(),
             });
         }
 
@@ -136,8 +137,12 @@ pub fn register(env: &sema_core::Env) {
         let ctx = context::current()
             .ok_or_else(|| SemaError::eval("workflow/phase outside a workflow/run"))?;
 
+        // The phase.started seq IS the phase's start_seq — the key checkpoints and
+        // agents attribute to (so the dashboard nests them under this phase).
+        let phase_seq = ctx.next_seq();
+        ctx.set_phase(phase_seq);
         ctx.emit(WorkflowEvent::PhaseStarted {
-            seq: ctx.next_seq(),
+            seq: phase_seq,
             ts: ctx.ts(),
             phase: label.clone(),
         });
@@ -176,10 +181,15 @@ pub fn register(env: &sema_core::Env) {
             // Outside a run: transparent — just call the thunk.
             return crate::list::call_function(thunk, &[]);
         };
+        // Unique per-invocation id (the dashboard correlates started→result→budget
+        // by it); the label is the agent_name (role).
+        let agent_id = ctx.next_agent_id(&label);
         ctx.emit(WorkflowEvent::AgentStarted {
             seq: ctx.next_seq(),
             ts: ctx.ts(),
-            agent: label.clone(),
+            agent_id: agent_id.clone(),
+            agent_name: label.clone(),
+            model: String::new(), // unknown until the call completes (filled below)
         });
         let start = Instant::now();
         let result = crate::list::call_function(thunk, &[]);
@@ -188,19 +198,40 @@ pub fn register(env: &sema_core::Env) {
         } else {
             start.elapsed().as_millis() as u64
         };
+        // Per-agent usage: the most recent LLM completion on this thread (if the leaf
+        // made one) gives the model + tokens + cost to attribute to this agent.
+        let usage = sema_llm::builtins::last_usage_snapshot();
+        let model = usage.as_ref().map(|u| u.model.clone()).unwrap_or_default();
         // Opaque output (digest on success, error text on failure) — the frozen
         // agent.result.output is a string/digest only.
         let output = match &result {
             Ok(v) => ctx.value_digest(v),
             Err(e) => format!("error: {e}"),
         };
+        let status = if result.is_ok() { "ok" } else { "failed" };
         ctx.emit(WorkflowEvent::AgentResult {
             seq: ctx.next_seq(),
             ts: ctx.ts(),
-            agent: label,
+            agent_id: agent_id.clone(),
+            status: status.into(),
             output,
             dur_ms,
+            model,
         });
+        // Attribute token usage + cost to this agent via a budget event (only when a
+        // completion actually ran — otherwise per-agent tokens stay honestly absent).
+        if let Some(u) = usage {
+            ctx.emit(WorkflowEvent::Budget {
+                seq: ctx.next_seq(),
+                ts: ctx.ts(),
+                agent_id: Some(agent_id),
+                phase_seq: ctx.phase_seq(),
+                input_tokens: u.input_tokens,
+                output_tokens: u.output_tokens,
+                cost_usd: u.cost_usd,
+                budget_limit: None,
+            });
+        }
         result
     });
 
@@ -219,11 +250,15 @@ pub fn register(env: &sema_core::Env) {
             // Write: store, journal, return the value (so it threads through `let`).
             let value = args[1].clone();
             ctx.store_checkpoint(&key, value.clone());
+            let digest = ctx.value_digest(&value);
+            let content_key = ctx.content_key(&key, &digest);
             ctx.emit(WorkflowEvent::Checkpoint {
                 seq: ctx.next_seq(),
                 ts: ctx.ts(),
+                phase_seq: ctx.phase_seq(),
                 key: key.clone(),
-                value_digest: ctx.value_digest(&value),
+                content_key,
+                value_digest: digest,
             });
             Ok(value)
         } else {

@@ -357,7 +357,9 @@ function project(events){
       }
       case "agent.result": {
         const a=agents.get(e.agent_id);
-        if(a){ a.status=e.status; a.output=e.output; a.dur_ms=e.dur_ms; } break;
+        if(a){ a.status=e.status; a.output=e.output; a.dur_ms=e.dur_ms;
+               if(e.model) a.model=e.model; }   // model is known only after the call
+        break;
       }
       case "agent.tool_call": {
         const a=agents.get(e.agent_id);

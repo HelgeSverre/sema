@@ -164,6 +164,7 @@ mod tests {
             workflow: "hello-wf".into(),
             run_id: "wf_test_0001".into(),
             code_version: String::new(),
+            args_json: String::new(),
         });
         j.write(&WorkflowEvent::RunEnded {
             seq: 1,

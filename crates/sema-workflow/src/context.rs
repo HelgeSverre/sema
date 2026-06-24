@@ -60,6 +60,13 @@ pub struct WorkflowCtx {
     start: Instant,
     /// Frozen budget map (optional for Spike 1; carried so the contract is stable).
     budget: BTreeMap<String, Value>,
+    /// `start_seq` of the currently-open phase (the phase.started event's seq), so
+    /// checkpoints/agents/budget events can be attributed to their phase.
+    cur_phase_seq: Cell<Option<u64>>,
+    /// Per-name agent invocation counter, for minting unique `agent_id`s.
+    agent_n: RefCell<BTreeMap<String, u64>>,
+    /// The run's `--args` JSON string (for the run.started event). Empty if none.
+    args_json: String,
     /// Cached fixed-ts override (read once at construction). `Some` ⇒ deterministic
     /// seam: `ts()` returns this string and `dur_ms()` returns 0.
     fixed_ts: Option<String>,
@@ -75,6 +82,16 @@ impl WorkflowCtx {
         journal: Journal,
         budget: BTreeMap<String, Value>,
     ) -> Rc<WorkflowCtx> {
+        Self::new_with_args(run_id, journal, budget, String::new())
+    }
+
+    /// As [`Self::new`], plus the run's `--args` JSON string for `run.started`.
+    pub fn new_with_args(
+        run_id: String,
+        journal: Journal,
+        budget: BTreeMap<String, Value>,
+        args_json: String,
+    ) -> Rc<WorkflowCtx> {
         let fixed_ts = std::env::var(FIXED_TS_ENV).ok();
         Rc::new(WorkflowCtx {
             run_id,
@@ -83,8 +100,44 @@ impl WorkflowCtx {
             seq: Cell::new(0),
             start: Instant::now(),
             budget,
+            cur_phase_seq: Cell::new(None),
+            agent_n: RefCell::new(BTreeMap::new()),
+            args_json,
             fixed_ts,
         })
+    }
+
+    /// The run's `--args` JSON string (empty if none).
+    pub fn args_json(&self) -> &str {
+        &self.args_json
+    }
+
+    /// Mark the currently-open phase (its `phase.started` seq). Subsequent
+    /// checkpoints / agents / budget events attribute to it.
+    pub fn set_phase(&self, start_seq: u64) {
+        self.cur_phase_seq.set(Some(start_seq));
+    }
+
+    /// `start_seq` of the open phase, if any.
+    pub fn phase_seq(&self) -> Option<u64> {
+        self.cur_phase_seq.get()
+    }
+
+    /// Mint a unique `agent_id` for an agent of role `name` (`<name>_<n>`, 1-based).
+    pub fn next_agent_id(&self, name: &str) -> String {
+        let mut m = self.agent_n.borrow_mut();
+        let n = m.entry(name.to_string()).or_insert(0);
+        *n += 1;
+        format!("{name}_{n}")
+    }
+
+    /// A stable short resume key for a checkpoint (`ck_<hex>` over key + digest).
+    pub fn content_key(&self, key: &str, value_digest: &str) -> String {
+        let h = format!(
+            "{:x}",
+            md5::compute(format!("{key}:{value_digest}").as_bytes())
+        );
+        format!("ck_{}", &h[..8])
     }
 
     /// Next monotonic sequence number (post-increment: first call yields 0).
@@ -224,7 +277,9 @@ pub fn set_workflow_scope(name: &str, doc: &str, meta: &Value) -> io::Result<Wor
     });
     let _ = journal.write_metadata(&metadata);
     // Spike 1 carries an empty budget map (the :budget cap is not enforced yet).
-    let ctx = WorkflowCtx::new(run_id, journal, BTreeMap::new());
+    // The CLI sets SEMA_WORKFLOW_ARGS_JSON to the verbatim `--args` string.
+    let args_json = std::env::var("SEMA_WORKFLOW_ARGS_JSON").unwrap_or_default();
+    let ctx = WorkflowCtx::new_with_args(run_id, journal, BTreeMap::new(), args_json);
     Ok(install_scope(ctx))
 }
 

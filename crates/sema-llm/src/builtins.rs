@@ -39,6 +39,31 @@ thread_local! {
     static BUDGET_STACK: RefCell<Vec<BudgetFrame>> = const { RefCell::new(Vec::new()) };
 }
 
+/// A small snapshot of the most recent completion's usage, for callers (e.g. the
+/// workflow runtime) that want to attribute tokens/cost to a step without depending
+/// on the internal `Usage` type. `None` until a completion has run on this thread.
+#[derive(Debug, Clone)]
+pub struct LastUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub model: String,
+    /// `None` when pricing is unknown for the model (genuinely absent, not 0).
+    pub cost_usd: Option<f64>,
+}
+
+/// Snapshot the most recent LLM completion's usage on this thread (tokens + model
+/// + computed cost). Used by the workflow runtime to emit per-agent budget events.
+pub fn last_usage_snapshot() -> Option<LastUsage> {
+    LAST_USAGE.with(|u| {
+        u.borrow().as_ref().map(|usage| LastUsage {
+            input_tokens: usage.prompt_tokens as u64,
+            output_tokens: usage.completion_tokens as u64,
+            model: usage.model.clone(),
+            cost_usd: pricing::calculate_cost(usage),
+        })
+    })
+}
+
 #[derive(Clone)]
 struct BudgetFrame {
     cost_limit: Option<f64>,

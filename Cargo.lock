@@ -3250,6 +3250,7 @@ dependencies = [
  "reqwest",
  "rusqlite",
  "sema-core",
+ "sema-llm",
  "sema-otel",
  "sema-reader",
  "sema-workflow",

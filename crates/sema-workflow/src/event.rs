@@ -35,10 +35,14 @@ pub enum WorkflowEvent {
         /// Run identity (the `<run-id>` directory name).
         run_id: String,
         /// Per-workflow-form code-version hash (Spike 4 contract — recorded now so
-        /// the frozen metadata need not be re-opened later). Empty in Spike 1 if the
-        /// caller has no hash yet.
+        /// the frozen metadata need not be re-opened later). Empty if the caller has
+        /// no hash yet.
         #[serde(default, skip_serializing_if = "String::is_empty")]
         code_version: String,
+        /// The run's `--args` input as a JSON string (the dashboard shows it on the
+        /// run.started stream row). Empty when no args were supplied.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        args_json: String,
     },
 
     /// A `phase` opened. Paired with exactly one [`Self::PhaseEnded`] (emitted even on
@@ -57,21 +61,33 @@ pub enum WorkflowEvent {
         dur_ms: u64,
     },
 
-    /// An agent leaf began executing.
+    /// An agent leaf began executing. `agent_id` is the per-invocation correlation
+    /// key (e.g. `write-article_2`); `agent_name` is the role label; `model` is the
+    /// LLM model (empty until known — it is filled on [`Self::AgentResult`]).
     #[serde(rename = "agent.started")]
-    AgentStarted { seq: u64, ts: String, agent: String },
+    AgentStarted {
+        seq: u64,
+        ts: String,
+        agent_id: String,
+        agent_name: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        model: String,
+    },
 
-    /// An agent leaf produced a result. `output` is an OPAQUE string/digest only
-    /// (`agent/run` returns a String today); typed fields can be added later without
-    /// breaking the frozen shape. `dur_ms` is `0` under the fixed-timestamp seam.
+    /// An agent leaf produced a result. `status` is `"ok"`/`"failed"`. `output` is an
+    /// OPAQUE string/digest only. `model` is the model the call used (from usage),
+    /// filled here because it is unknown when the agent started.
     #[serde(rename = "agent.result")]
     AgentResult {
         seq: u64,
         ts: String,
-        agent: String,
+        agent_id: String,
+        status: String,
         /// Opaque agent output (string or digest). Never a structured/typed field.
         output: String,
         dur_ms: u64,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        model: String,
     },
 
     /// An agent invoked a tool. Names + opaque argument digest only.
@@ -79,39 +95,49 @@ pub enum WorkflowEvent {
     AgentToolCall {
         seq: u64,
         ts: String,
-        agent: String,
-        tool: String,
-        /// Opaque digest of the call arguments (lossy is fine in Spike 1).
+        agent_id: String,
+        tool_name: String,
+        /// Opaque digest of the call arguments (a `"gated"` sentinel = not captured).
         #[serde(default, skip_serializing_if = "String::is_empty")]
-        args_digest: String,
+        args_json: String,
     },
 
     /// A `checkpoint` recorded a keyed step value. The value itself is NOT stored in
-    /// the event stream — only a (lossy in Spike 1) digest — so the journal stays
-    /// compact and the value lives in the run dir's `checkpoints/` if needed.
+    /// the event stream — only a (lossy) digest — and a `content_key` resume hash.
     #[serde(rename = "checkpoint")]
     Checkpoint {
         seq: u64,
         ts: String,
+        /// `start_seq` of the enclosing phase (the dashboard nests it there).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        phase_seq: Option<u64>,
         /// Checkpoint key (the `:k` of `(checkpoint :k v)`), as a bare name.
         key: String,
+        /// Stable resume key (hash of inputs + code version); short hex.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        content_key: String,
         /// Opaque digest of the recorded value.
         value_digest: String,
     },
 
-    /// A budget observation: current consumption against the run's caps.
+    /// A budget / usage observation. Per-event (never a mutated counter) so summing
+    /// over events never double-charges. Carries an `agent_id` when the usage is
+    /// attributable to one agent leaf (the only way per-agent tokens are shown).
     #[serde(rename = "budget")]
     Budget {
         seq: u64,
         ts: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        agents_used: Option<u64>,
+        agent_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        max_agents: Option<u64>,
+        phase_seq: Option<u64>,
+        input_tokens: u64,
+        output_tokens: u64,
+        /// `None` when pricing is unknown for the model (genuinely absent, not 0).
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        tokens_used: Option<u64>,
+        cost_usd: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        max_tokens: Option<u64>,
+        budget_limit: Option<u64>,
     },
 
     /// Last line of every run. `status` mirrors the `{:status …}` envelope's status
@@ -141,11 +167,41 @@ mod tests {
             workflow: "hello-wf".into(),
             run_id: "wf_test_0001".into(),
             code_version: String::new(), // skipped when empty
+            args_json: String::new(),    // skipped when empty
         };
         let line = serde_json::to_string(&ev).unwrap();
         assert_eq!(
             line,
             r#"{"event":"run.started","seq":0,"ts":"0","workflow":"hello-wf","run_id":"wf_test_0001"}"#
+        );
+    }
+
+    #[test]
+    fn agent_events_use_agent_id() {
+        let started = WorkflowEvent::AgentStarted {
+            seq: 5,
+            ts: "0".into(),
+            agent_id: "auditor_1".into(),
+            agent_name: "auditor".into(),
+            model: String::new(),
+        };
+        assert_eq!(
+            serde_json::to_string(&started).unwrap(),
+            r#"{"event":"agent.started","seq":5,"ts":"0","agent_id":"auditor_1","agent_name":"auditor"}"#
+        );
+        let budget = WorkflowEvent::Budget {
+            seq: 9,
+            ts: "0".into(),
+            agent_id: Some("auditor_1".into()),
+            phase_seq: Some(4),
+            input_tokens: 3120,
+            output_tokens: 880,
+            cost_usd: Some(0.0041),
+            budget_limit: Some(250000),
+        };
+        let line = serde_json::to_string(&budget).unwrap();
+        assert!(
+            line.contains(r#""agent_id":"auditor_1""#) && line.contains(r#""input_tokens":3120"#)
         );
     }
 
@@ -170,13 +226,15 @@ mod tests {
         let ev = WorkflowEvent::Checkpoint {
             seq: 2,
             ts: "0".into(),
+            phase_seq: Some(1),
             key: "files".into(),
+            content_key: "ck_4d2f8a1c".into(),
             value_digest: "abc123".into(),
         };
         let line = serde_json::to_string(&ev).unwrap();
         assert_eq!(
             line,
-            r#"{"event":"checkpoint","seq":2,"ts":"0","key":"files","value_digest":"abc123"}"#
+            r#"{"event":"checkpoint","seq":2,"ts":"0","phase_seq":1,"key":"files","content_key":"ck_4d2f8a1c","value_digest":"abc123"}"#
         );
     }
 }

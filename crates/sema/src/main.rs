@@ -911,6 +911,8 @@ fn run_workflow_command(command: WorkflowCommands, sandbox: &sema_core::Sandbox)
     // The workflow runtime (sema-workflow) reads this seam to choose the run-dir
     // base; the run lands in `<run-dir>/<run-id>/`.
     std::env::set_var("SEMA_WORKFLOW_RUN_DIR", &run_dir);
+    // Recorded verbatim on the run.started event (shown in the viewer's stream/meta).
+    std::env::set_var("SEMA_WORKFLOW_ARGS_JSON", &args);
 
     // `--view`: start the live viewer on a background thread BEFORE the run, so the
     // journal (written flush-per-event) is watchable in real time, and keep it up
