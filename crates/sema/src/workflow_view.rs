@@ -113,18 +113,21 @@ fn route(path: &str, run_dir: &Path) -> (&'static str, &'static str, Vec<u8>) {
             list_runs(run_dir).into_bytes(),
         );
     }
-    // /api/run/<id>/events.jsonl  — <id> must be a single safe path segment.
-    if let Some(id) = path
-        .strip_prefix("/api/run/")
-        .and_then(|rest| rest.strip_suffix("/events.jsonl"))
-    {
-        if is_safe_segment(id) {
-            let file = run_dir.join(id).join("events.jsonl");
-            if let Ok(bytes) = std::fs::read(&file) {
-                return ("200 OK", "application/x-ndjson", bytes);
+    // /api/run/<id>/<file> — <id> a single safe segment, <file> a whitelisted name.
+    if let Some(rest) = path.strip_prefix("/api/run/") {
+        if let Some((id, file)) = rest.split_once('/') {
+            let (ctype, ok) = match file {
+                "events.jsonl" => ("application/x-ndjson", true),
+                "result.json" | "metadata.json" | "args.json" => ("application/json", true),
+                _ => ("", false),
+            };
+            if ok && is_safe_segment(id) {
+                if let Ok(bytes) = std::fs::read(run_dir.join(id).join(file)) {
+                    return ("200 OK", ctype, bytes);
+                }
             }
         }
-        return ("404 Not Found", "text/plain", b"no such run".to_vec());
+        return ("404 Not Found", "text/plain", b"no such run/file".to_vec());
     }
     ("404 Not Found", "text/plain", b"not found".to_vec())
 }

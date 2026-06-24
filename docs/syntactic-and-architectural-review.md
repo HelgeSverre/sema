@@ -1,32 +1,44 @@
 # Sema Lisp — Syntactic & Architectural Review
 
 Comprehensive review of syntactic improvements and architectural recommendations.
-Assessed against v1.27.1 on 2026-06-24.
+Assessed against v1.27.1 on 2026-06-24. Verified against source on 2026-06-24.
+
+> **Verification status**: All claims checked against source. Factual corrections applied.
+> See "Verification Notes" at the end of each section.
 
 ---
 
 ## Part 1: Syntactic Improvements (Compactness & Ergonomics)
 
-### 1. Zero-arg thunk literal `^(...)` or `#()` — HIGH IMPACT
+### 1. Zero-arg thunk literal — HIGH IMPACT
 
-`#(fn () ...)` boilerplate appears **88 times** in example files — benchmarks, lazy streams,
-async spawn, error wrappers, generators. A zero-arg thunk literal would eliminate enormous
-verbosity:
+Zero-arg lambda boilerplate appears **148 times** across `.sema` files (119 `(fn ()` + 29
+`(lambda ()`) — benchmarks, lazy streams, async spawn, error wrappers, generators. A zero-arg
+thunk literal would eliminate enormous verbosity:
 
 ```lisp
 ;; current                          ;; proposed
-(async (fn () (http/get url)))  →   (async ^(http/get url))
-(stream-cons h (fn () (tl s)))  →   (stream-cons h ^(tl s))
-(safe-op "div" (fn () (/ 10 3))) →  (safe-op "div" ^(/ 10 3))
+(async (fn () (http/get url)))  →   (async #(http/get url))
+(stream-cons h (fn () (tl s)))  →   (stream-cons h #(tl s))
+(safe-op "div" (fn () (/ 10 3))) →  (safe-op "div" #(/ 10 3))
 ```
 
-The reader already handles `#(...)` for one-arg lambdas via `%`. A `^(...)` prefix (or allowing
-`#(...)` with no `%` refs to be zero-arg instead of zero-arg-with-implicit-call) would be a
-natural extension. Since `^` is already a valid symbol-start char, this needs a reader dispatch
-choice — but `^(` as a thunk literal is unused and unambiguous.
+The reader already handles `#(...)` for one-arg lambdas via `%`. When no `%`/`%1`/`%2` refs are
+found, the body currently desugars to `(lambda () (body...))` — a zero-arg lambda whose body is a
+**single call form**. This means `#(println "hello")` already works as a zero-arg thunk, but
+`#(do-a do-b)` desugars to `(lambda () (do-a do-b))` — a call to `do-a` with arg `do-b`, not two
+statements. The fix is to make `#(...)` with no `%` refs wrap body forms in an implicit `(do ...)`
+so multi-expression zero-arg thunks work.
 
-**Implementation**: `crates/sema-reader/src/lexer.rs` (new `#`-dispatch or `^`-prefix token),
-`crates/sema-reader/src/reader.rs` (desugar to `(lambda () ...)`).
+> **Syntax conflict note**: The `^(...)` syntax originally proposed is **PROBLEMATIC** — `^` is
+> a valid symbol character in the lexer (`is_symbol_start` includes `^`), so `^(body)` currently
+> tokenizes as `Symbol("^")` + `LParen` + ..., parsing as `(^ body)` — a call to an unbound
+> function `^`. Using `^` would require intercepting it before the symbol lexer runs, which would
+> break any code using `^` in symbol names. The safer approach is to fix `#(...)` to wrap no-arg
+> bodies in `(do ...)` rather than introducing a new dispatch character.
+
+**Implementation**: `crates/sema-reader/src/reader.rs` (`rewrite_percent_args` — when no `%N`
+refs found, desugar to `(lambda () (do body...))` instead of `(lambda () body)`).
 
 ---
 
@@ -37,20 +49,33 @@ choice — but `^(` as a thunk literal is unused and unambiguous.
 nested access without `->`:
 
 ```lisp
-;; current                              ;; proposed (dot-access or slash-access)
-(* pi (get s :radius) (get s :radius))  →  (* pi s.radius s.radius)
-(get (get config :db) :host)            →  config.db.host
-;; or slash form:
-(string/trim (get user :name))          →  (string/trim user/:name)
+;; current                              ;; proposed
+(* pi (get s :radius) (get s :radius))  →  (* pi (-> s :radius) (-> s :radius))
+(get (get config :db) :host)            →  (-> config :db :host)
 ```
 
-A reader-level `expr.field` or `expr/:field` desugaring to `(get expr :field)` would compact
-record-heavy code (multimethods, JSON APIs, data pipelines) significantly. The slash form
-`m/:key` is more Lisp-idiomatic and avoids ambiguity with float parsing; the dot form is more
-universally readable but needs careful lexer work to distinguish from float `1.5`.
+> **Syntax conflict note**: Two reader-level syntaxes were originally proposed — `m.field`
+> (dot-access) and `m/:key` (slash-access). **Both are PROBLEMATIC**:
+>
+> - **`m.field`**: `.` is a valid symbol character (`is_symbol_start` and `is_symbol_char` both
+>   include `.`), so `m.field` currently tokenizes as a single `Symbol("m.field")`, not as
+>   access syntax. The only special `.` handling is a bare `.` → `Token::Dot` for dotted pairs.
+>   Implementing dot-access would require splitting symbols on `.` at the reader level, breaking
+>   any existing dotted symbols (e.g. `string.to.keyword` style names).
+>
+> - **`m/:key`**: `:` is the keyword prefix, not a symbol character, so `m/:name` tokenizes as
+>   `Symbol("m/")` + `Keyword("name")` — two separate tokens. This cannot be fixed without
+>   making `:` a symbol char (which would break keyword parsing).
+>
+> **Recommended alternative**: Rather than reader-level syntax, extend the `->` threading macro
+> (already in the prelude) to treat keyword steps as `get` calls. This is a **macro-level**
+> change with no reader modifications: `(-> config :db :host)` desugars to
+> `(get (get config) :db) :host)`. This would be a new prelude macro variant or an extension of
+> the existing `->` behavior, keeping the change in `crates/sema-eval/src/prelude.rs` without
+> touching the reader.
 
-**Implementation**: `crates/sema-reader/src/lexer.rs` (detect `.field` or `/:field` after
-expressions), `crates/sema-reader/src/reader.rs` (desugar to `(get ...)`).
+**Implementation**: `crates/sema-eval/src/prelude.rs` (extend `->` to treat keyword steps as
+`(get ...)` calls), or a new `get->` / `..` threading macro specifically for map access.
 
 ---
 
@@ -74,6 +99,10 @@ This combines iteration, filtering, and binding in one form — replacing nested
 **Implementation**: `crates/sema-vm/src/lower.rs` (lower `for`/`for/list` to nested `let` +
 `if` + `cons`), or `crates/sema-eval/src/prelude.rs` (macro expansion to `foldl`/`map`+`filter`).
 
+> **Verified**: `for` is not in `SPECIAL_FORM_NAMES` (lower.rs:239-284). `for/list` is
+> user-defined via `defmacro` in `examples/comprehensions.sema:16`. No conflict — `for` is a
+> free name for a new special form or macro.
+
 ---
 
 ### 4. Multi-arg short lambda promotion — MEDIUM IMPACT
@@ -93,6 +122,9 @@ prominently:
 **Implementation**: No code change needed — documentation + example updates. Optionally add
 `%&` rest-arg support in `crates/sema-reader/src/reader.rs` (`rewrite_percent_args`).
 
+> **Verified**: `rg '%[12]' --glob '*.sema'` returns zero results — confirmed that multi-arg
+> short lambdas are never used in examples despite being supported by the reader.
+
 ---
 
 ### 5. `finally` in `try` — MEDIUM IMPACT
@@ -110,6 +142,10 @@ manual `with-stream` or re-throw patterns:
 **Implementation**: `crates/sema-vm/src/lower.rs` (lower `finally` to `try`/`catch` +
 re-throw), `crates/sema-vm/src/vm.rs` (exception handling path).
 
+> **Verified**: `rg -i 'finally' lower.rs` returns no results. `lower_try` (lower.rs:1182-1212)
+> requires the last argument to be `(catch var handler...)` — `finally` is not recognized. No
+> conflict with adding an optional `(finally ...)` clause.
+
 ---
 
 ### 6. Common combinators in stdlib — MEDIUM IMPACT
@@ -124,6 +160,9 @@ These are absent and frequently reimplemented:
 **Implementation**: `crates/sema-stdlib/src/meta.rs` or a new `crates/sema-stdlib/src/combinators.rs`,
 registered in `crates/sema-stdlib/src/lib.rs::register()`.
 
+> **Verified**: `rg '\b(comp|partial|identity|constantly|memoize|complement)\b'` across
+> `sema-stdlib/src/` returns no results — confirmed all six combinators are absent.
+
 ---
 
 ### 7. Block comments `#| ... |#` — LOW IMPACT, HIGH CONVENIENCE
@@ -134,6 +173,9 @@ code for documenting complex forms, disabling sections, and inline explanations.
 
 **Implementation**: `crates/sema-reader/src/lexer.rs` (add `#|` dispatch, track nesting depth,
 consume until matching `|#`).
+
+> **Verified**: `#|` currently errors with "unexpected character after #: '|'". No conflict —
+> safe to add to the `#` dispatch table.
 
 ---
 
@@ -146,6 +188,9 @@ additions.
 **Implementation**: `crates/sema-reader/src/lexer.rs` (add `#x`/`#o`/`#b`/`#d` dispatch, parse
 radix digits).
 
+> **Verified**: `#x` currently errors with "unexpected character after #: 'x'" (also has an
+> existing test: `assert!(read("#x").is_err())` at reader.rs:1009). Safe to add.
+
 ---
 
 ### 9. Set literal `#{...}` — LOW IMPACT
@@ -156,6 +201,8 @@ stdlib constructor suffices without syntax.
 
 **Implementation**: `crates/sema-reader/src/lexer.rs` + `reader.rs` (parse `#{...}` as a set
 value), `crates/sema-core/src/value.rs` (new `TAG_SET` or reuse `TAG_HASHMAP` with a flag).
+
+> **Verified**: `#{` currently errors with "unexpected character after #: '{'". Safe to add.
 
 ---
 
@@ -170,6 +217,8 @@ already bound:
 
 **Implementation**: `crates/sema-vm/src/lower.rs` (lower to `if (bound? 'name) ... (define ...)`),
 or `crates/sema-eval/src/prelude.rs` (macro).
+
+> **Verified**: `rg 'defonce'` in lower.rs and eval/ returns no results. Safe to add.
 
 ---
 
@@ -187,6 +236,10 @@ this:
 **Implementation**: `crates/sema-eval/src/destructure.rs` (add `or` pattern matching in
 `soft_match`), `crates/sema-vm/src/lower.rs` (lowering for `match` with `or` patterns).
 
+> **Verified**: `match_into` (destructure.rs:158-194) has no `or` handling. A `(or 1 2)` pattern
+> currently falls through to literal equality matching (matching the list `(or 1 2)` itself, not
+> its alternatives). `collect_pattern_vars` also ignores lists. Safe to add.
+
 ---
 
 ### 12. `:as` destructuring — LOW IMPACT
@@ -201,6 +254,27 @@ No way to bind both the whole value and its parts:
 
 **Implementation**: `crates/sema-eval/src/destructure.rs` (handle `:as` keyword in vector/map
 patterns), `crates/sema-vm/src/lower.rs` (destructuring lowering).
+
+> **Verified**: `rg ':as' destructure.rs` returns no results. Safe to add.
+
+---
+
+## Verification Summary (Part 1)
+
+| # | Proposal | Impact | Syntax Safe? | Claim Verified? |
+|---|---------|--------|-------------|-----------------|
+| 1 | Zero-arg thunk (fix `#(...)`) | HIGH | `#(...)` already works; needs `do` wrapping | Yes (count corrected: 148, not 88) |
+| 2 | Map field-access via `->` | HIGH | `^(...)` and `m.field` and `m/:key` all CONFLICT; use `->` macro instead | Yes (revised approach) |
+| 3 | List comprehensions `for`/`for/list` | HIGH | Safe — `for` not in special forms | Yes |
+| 4 | Multi-arg short lambda docs | MEDIUM | N/A — no syntax change | Yes (`%1`/`%2` confirmed unused) |
+| 5 | `finally` in `try` | MEDIUM | Safe — not recognized in `try` | Yes |
+| 6 | Combinators (comp, partial, etc.) | MEDIUM | N/A — stdlib addition | Yes (all 6 confirmed absent) |
+| 7 | Block comments `#\|` | LOW | Safe — currently errors | Yes |
+| 8 | Radix prefixes `#x`/`#o`/`#b` | LOW | Safe — currently errors | Yes |
+| 9 | Set literal `#{...}` | LOW | Safe — currently errors | Yes |
+| 10 | `defonce` | LOW | Safe — not defined | Yes |
+| 11 | OR-patterns in `match` | LOW | Safe — `or` not handled in patterns | Yes |
+| 12 | `:as` destructuring | LOW | Safe — not handled | Yes |
 
 ---
 
@@ -243,6 +317,8 @@ friction.
 **Risk**: Pure refactor — no behavior change. Needs comprehensive test coverage to verify
 (`cargo test` across all crates).
 
+> **Verified**: `wc -l` confirms exact line counts — builtins.rs = 6,882, vm.rs = 5,905.
+
 ---
 
 ### 2. Decompose `EvalContext` and reduce thread-local global state
@@ -278,6 +354,10 @@ the single-threaded constraint visible in the type system.
 be done incrementally with `Deref` impls or accessor methods to minimize breakage. Thread-local
 migration is higher-risk and should be a separate, optional phase.
 
+> **Verified**: `EvalContext` (context.rs:17-38) has exactly 18 fields. `STDLIB_CTX` thread-local
+> confirmed at context.rs:557-559. Stdlib does NOT depend on eval (confirmed in Cargo.toml).
+> Eval depends on stdlib + llm (confirmed in Cargo.toml).
+
 ---
 
 ### 3. Consolidate the dual Scheme/Clojure naming convention
@@ -297,6 +377,9 @@ and the `veteran_hint` table (which already maps CL/Scheme names to Sema equival
 **Risk**: Breaking change for any code using legacy names. Mitigate with a `--compat` flag or a
 `(import "sema/compat")` that registers legacy aliases. The `veteran_hint` table already provides
 migration guidance.
+
+> **Verified**: `string.rs` registers `"string-append"` as primary with `"string/append"` as
+> alias. `map.rs` registers `"get"` as primary with `"hash-ref"` as alias. Dual naming confirmed.
 
 ---
 
@@ -321,3 +404,8 @@ sema-core ← sema-reader ← sema-vm ← sema-eval → sema-stdlib/sema-llm
 Where `sema-eval` depends on `sema-vm`, `sema-stdlib`, and `sema-llm` at the Cargo level, and
 `sema-stdlib`/`sema-llm` call back into the evaluator via thread-local function pointers
 registered by `sema-eval` at startup.
+
+> **Verified**: AGENTS.md line 24 shows `sema-eval ← sema-stdlib/sema-llm` (arrows point left,
+> implying stdlib/llm depend on eval). Cargo.toml confirms the reverse: `sema-eval` depends on
+> `sema-stdlib` and `sema-llm`. The text immediately after the diagram ("Critical: stdlib/llm
+> depend on core, NOT eval") is correct — only the arrow diagram is inverted.

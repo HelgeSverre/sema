@@ -4,225 +4,773 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Sema · Workflow Run</title>
-<script defer src="/alpine.min.js"></script>
 <style>
   :root{
-    --gold:#c8a855; --gold-dim:rgba(200,168,85,.5); --gold-soft:rgba(200,168,85,.14);
-    --bg:#131110; --bg-elevated:#181512; --bg-output:#0f0d0c;
+    --gold:#c8a855; --gold-dim:rgba(200,168,85,.5); --gold-glow:rgba(200,168,85,.08); --gold-soft:rgba(200,168,85,.14);
+    --bg:#131110; --bg-elevated:#181512; --bg-editor:#1c1916; --bg-output:#0f0d0c;
     --text-primary:#e9e3d6; --text-secondary:#968c79; --text-tertiary:#6b6354;
-    --border:#2b2620; --success:#6a9955; --error:#c85555;
+    --border:#2b2620; --border-focus:#c8a855; --success:#6a9955; --error:#c85555;
     --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+    --serif:'Cormorant',Georgia,'Times New Roman',serif;
+
+    /* type scale */
     --fs-micro:10px; --fs-meta:11px; --fs-small:11.5px; --fs-body:13px; --fs-lead:14px;
+    --lh:1.45;
   }
   *{box-sizing:border-box}
   html,body{height:100%}
-  body{margin:0;background:var(--bg);color:var(--text-primary);
-    font-family:var(--mono);font-size:var(--fs-body);line-height:1.45;-webkit-font-smoothing:antialiased;}
+  body{
+    margin:0;background:var(--bg);color:var(--text-primary);
+    font-family:var(--mono);font-size:var(--fs-body);line-height:var(--lh);
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  }
+  ::selection{background:var(--gold-soft);}
   .tnum{font-variant-numeric:tabular-nums;}
-  a{color:var(--gold);}
+  .ell{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
-  .header{position:sticky;top:0;z-index:30;background:var(--bg-elevated);border-bottom:1px solid var(--border);}
-  .header-bar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px 14px;padding:12px 20px 11px;}
-  .brand{justify-self:start;display:flex;align-items:baseline;gap:8px;overflow:hidden;}
-  .logo{font-size:16px;font-weight:600;letter-spacing:.3px;}
+  .app{width:100%;min-height:100vh;display:flex;flex-direction:column;}
+
+  /* ============================ RUN HEADER ============================ */
+  .header{position:sticky;top:0;z-index:30;background:var(--bg-elevated);
+    border-bottom:1px solid var(--border);}
+  .header-bar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px 14px;
+    padding:12px 20px 11px;min-width:0;}
+  .brand{justify-self:start;display:flex;align-items:baseline;gap:8px;min-width:0;overflow:hidden;}
+  .logo{font-size:16px;font-weight:600;color:var(--text-primary);line-height:1;flex:0 0 auto;letter-spacing:.3px;}
   .logo .paren{color:var(--gold);}
-  .lead,.dot-sep{color:var(--text-tertiary);}
-  .wf-name{font-size:var(--fs-lead);font-weight:600;letter-spacing:.3px;}
-  .run-status{justify-self:center;display:flex;align-items:center;gap:10px;}
-  .pill{font-size:var(--fs-micro);padding:2px 8px;border:1px solid;letter-spacing:.7px;text-transform:uppercase;font-weight:600;line-height:1.5;}
+  .brand .lead{color:var(--text-tertiary);flex:0 0 auto;letter-spacing:.3px;}
+  .wf-name{font-size:var(--fs-lead);font-weight:600;color:var(--text-primary);
+    letter-spacing:.3px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .dot-sep{color:var(--text-tertiary);flex:0 0 auto;}
+  .run-status{justify-self:center;display:flex;align-items:center;gap:10px;flex:0 0 auto;}
+  .pill{font-size:var(--fs-micro);padding:2px 8px;border:1px solid;letter-spacing:.7px;
+    text-transform:uppercase;font-weight:600;flex:0 0 auto;line-height:1.5;}
   .pill.running{color:var(--gold);border-color:var(--gold-dim);}
   .pill.success{color:var(--success);border-color:#33402a;}
   .pill.failed{color:var(--error);border-color:#4a2828;}
-  .elapsed{color:var(--text-secondary);}
-  .rollup{justify-self:end;color:var(--text-secondary);display:flex;gap:8px;align-items:baseline;font-size:var(--fs-small);white-space:nowrap;}
+  .elapsed{color:var(--text-secondary);flex:0 0 auto;font-variant-numeric:tabular-nums;}
+  .rollup{justify-self:end;color:var(--text-secondary);
+    display:flex;gap:8px;align-items:baseline;font-size:var(--fs-small);flex:0 0 auto;white-space:nowrap;}
   .rollup .num{color:var(--text-primary);}
-  .meta-strip{display:flex;gap:0;border-top:1px solid var(--border);font-size:var(--fs-meta);color:var(--text-tertiary);}
-  .meta-cell{padding:7px 20px;border-right:1px solid var(--border);}
-  .meta-cell b{color:var(--text-secondary);font-weight:500;}
 
-  .runs-bar{display:flex;gap:6px;flex-wrap:wrap;padding:8px 20px;border-bottom:1px solid var(--border);background:var(--bg-output);}
-  .run-chip{font-size:var(--fs-meta);padding:3px 9px;border:1px solid var(--border);color:var(--text-secondary);cursor:pointer;}
-  .run-chip.active{border-color:var(--gold-dim);color:var(--text-primary);}
+  /* meta strip — fixed grid columns so it never wraps awkwardly */
+  .meta-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(0,1fr));
+    gap:0;border-top:1px solid var(--border);}
+  .meta-cell{padding:8px 20px;border-right:1px solid var(--border);min-width:0;}
+  .meta-cell:last-child{border-right:none;}
+  .meta-cell .k{display:block;font-size:var(--fs-micro);letter-spacing:1px;text-transform:uppercase;
+    color:var(--text-tertiary);margin-bottom:3px;}
+  .meta-cell .v{display:block;font-size:var(--fs-small);color:var(--text-secondary);}
+  .budget-line{display:flex;align-items:center;gap:8px;min-width:0;}
+  .budget-bar{flex:1;height:3px;background:#211d18;overflow:hidden;position:relative;min-width:24px;}
+  .budget-bar i{position:absolute;left:0;top:0;bottom:0;background:var(--gold-dim);}
+  .budget-line .bnum{flex:0 0 auto;color:var(--text-secondary);}
 
-  .tree{padding:14px 20px 60px;}
-  .phase{margin-bottom:2px;}
-  .phase-head{display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;}
-  .phase-head:hover{background:var(--gold-soft);}
-  .phase-name{font-weight:600;letter-spacing:.2px;}
-  .phase-dur{margin-left:auto;color:var(--text-tertiary);font-size:var(--fs-meta);}
-  .glyph{width:1.1em;text-align:center;flex:0 0 auto;}
-  .g-run{color:var(--gold);} .g-ok{color:var(--success);} .g-fail{color:var(--error);}
-  .rows{padding-left:18px;border-left:1px solid var(--border);margin-left:5px;}
-  .row{display:flex;align-items:baseline;gap:8px;padding:3px 0;}
-  .row .conn{color:var(--text-tertiary);flex:0 0 auto;}
-  .row.agent{cursor:pointer;}
-  .row.agent:hover{background:var(--gold-soft);}
-  .agent-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .agent-meta{margin-left:auto;color:var(--text-tertiary);font-size:var(--fs-meta);white-space:nowrap;}
-  .twig{color:var(--text-tertiary);font-size:var(--fs-meta);padding-left:18px;}
-  .line-cp{color:var(--text-secondary);font-size:var(--fs-meta);}
-  .line-budget{color:var(--text-secondary);font-size:var(--fs-meta);}
-  .kw{color:var(--gold);}
-  .disclosure{margin:2px 0 6px 26px;padding:8px 10px;background:var(--bg-output);border:1px solid var(--border);
-    font-size:var(--fs-meta);color:var(--text-secondary);white-space:pre-wrap;word-break:break-word;}
-  .empty{color:var(--text-tertiary);padding:30px 20px;}
-  .spin{display:inline-block;animation:spin 1s linear infinite;}
-  @keyframes spin{to{transform:rotate(360deg)}}
+  /* ============================ BODY GRID ============================ */
+  .body{flex:1;display:grid;grid-template-columns:230px minmax(0,1fr) 420px;min-height:0;}
+
+  /* ---- LEFT: phase ledger ---- */
+  .phases{border-right:1px solid var(--border);padding:12px 0;overflow:auto;min-width:0;}
+  .col-label{font-size:var(--fs-micro);letter-spacing:1.4px;text-transform:uppercase;color:var(--text-tertiary);
+    padding:0 16px 8px;}
+  .phase{display:grid;grid-template-columns:14px 1fr auto;align-items:center;gap:8px;
+    padding:8px 16px 8px 14px;cursor:pointer;min-width:0;}
+  .phase:hover{background:var(--bg-elevated);}
+  .phase.active{background:var(--bg-elevated);}
+  .phase .pglyph{text-align:center;font-size:12px;line-height:1;}
+  .phase .pname{color:var(--text-secondary);letter-spacing:.2px;}
+  .phase.active .pname,.phase.live .pname{color:var(--text-primary);}
+  .phase .count{color:var(--text-tertiary);font-size:var(--fs-small);flex:0 0 auto;}
+  .phase.active .count{color:var(--gold-dim);}
+  .phase.has-fail .count{color:var(--error);}
+  /* active marker is a square-cornered ledger rule, NOT a stripe on a rounded card */
+  .phase.active{box-shadow:inset 2px 0 0 var(--gold);}
+
+  /* ---- CENTER: agent rows + drill-in ---- */
+  .detail{display:flex;flex-direction:column;min-width:0;overflow:auto;
+    border-right:1px solid var(--border);}
+  .agents-head{display:flex;align-items:baseline;gap:10px;padding:13px 18px 7px;min-width:0;}
+  .agents-head .title{font-size:var(--fs-body);color:var(--text-primary);font-weight:600;flex:0 0 auto;}
+  .agents-head .sub{font-size:var(--fs-meta);color:var(--text-tertiary);}
+
+  /* column header for the dense aligned agent table */
+  .arow,.acols{display:grid;
+    grid-template-columns:16px minmax(0,1fr) 64px 54px 62px;
+    align-items:baseline;gap:12px;padding:6px 18px;min-width:0;}
+  .acols{padding-top:2px;padding-bottom:6px;color:var(--text-tertiary);font-size:var(--fs-micro);
+    letter-spacing:.8px;text-transform:uppercase;border-bottom:1px solid var(--border);}
+  .acols span{min-width:0;white-space:nowrap;}
+  .acols .r{text-align:right;}
+
+  .arow{cursor:pointer;}
+  .arow:hover{background:var(--bg-elevated);}
+  .arow.sel{background:var(--bg-elevated);}
+  .arow.sel{box-shadow:inset 2px 0 0 var(--gold-dim);}
+  .arow .aglyph{text-align:center;font-size:12px;line-height:1;}
+  .arow .albl{min-width:0;display:flex;align-items:baseline;gap:9px;white-space:nowrap;}
+  .albl .aname{color:var(--text-primary);flex:0 0 auto;}
+  .arow.run .albl .aname{color:var(--gold);}
+  .arow.dim .albl .aname{color:var(--text-secondary);}
+  /* model is shown in full (no truncation, per request) */
+  .albl .amodel{color:var(--text-tertiary);font-size:var(--fs-small);flex:0 0 auto;}
+  .arow .c{color:var(--text-secondary);font-size:var(--fs-small);text-align:right;white-space:nowrap;}
+  .arow .c.blank{color:var(--text-tertiary);}
+  .arow.run .c.tok{color:var(--gold-dim);}
+
+  /* status glyph colors */
+  .g-run{color:var(--gold);}
+  .g-ok{color:var(--success);}
+  .g-fail{color:var(--error);}
+  .g-pend{color:var(--text-tertiary);}
+  .pulse{animation:pulse 1.5s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+
+  /* ---- DRILL-IN (inline disclosure, square-cornered ledger panel) ---- */
+  .drill{margin:8px 18px 20px;background:var(--bg-output);border:1px solid var(--border);}
+  .drill-top{display:flex;align-items:center;gap:10px;padding:10px 14px;
+    border-bottom:1px solid var(--border);background:var(--bg-elevated);min-width:0;}
+  .drill-top .dglyph{font-size:12px;flex:0 0 auto;}
+  .drill-top .dname{color:var(--text-primary);font-weight:600;flex:0 0 auto;
+    min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .drill-top .dmeta{margin-left:auto;color:var(--text-tertiary);font-size:var(--fs-meta);
+    white-space:nowrap;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;}
+  .drill-sec{padding:12px 14px;border-bottom:1px solid var(--border);}
+  .drill-sec:last-child{border-bottom:none;}
+  .sec-label{font-size:var(--fs-micro);letter-spacing:1.2px;text-transform:uppercase;color:var(--text-tertiary);
+    margin-bottom:8px;display:flex;align-items:center;gap:8px;min-width:0;}
+  .sec-label .note{text-transform:none;letter-spacing:0;color:var(--text-tertiary);font-size:var(--fs-meta);}
+  .sec-label .expand{margin-left:auto;color:var(--gold-dim);cursor:pointer;font-size:var(--fs-micro);
+    letter-spacing:.5px;text-transform:none;flex:0 0 auto;}
+  .sec-label .expand:hover{color:var(--gold);}
+
+  /* captured-content panel: honestly empty-able */
+  .captured{color:var(--text-secondary);white-space:pre-wrap;word-break:break-word;
+    font-size:12px;line-height:1.6;max-height:3.2em;overflow:hidden;}
+  .captured.open{max-height:none;}
+  .captured.empty{color:var(--text-tertiary);font-style:normal;}
+  .gate{display:inline-block;font-size:var(--fs-micro);color:var(--text-tertiary);
+    border:1px solid var(--border);padding:0 5px;letter-spacing:.4px;margin-left:6px;}
+
+  /* tool twigs — tool_name + presence only (content-gated) */
+  .twigs{display:flex;flex-direction:column;}
+  .twig{display:grid;grid-template-columns:12px minmax(0,auto) minmax(0,1fr);gap:9px;align-items:baseline;
+    padding:2px 0;font-size:12px;min-width:0;}
+  .twig .tg{color:var(--text-tertiary);text-align:center;}
+  .twig .tname{color:var(--text-secondary);min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .twig .tgate{color:var(--text-tertiary);font-size:var(--fs-meta);min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .twigs-foot{font-size:var(--fs-meta);color:var(--text-tertiary);margin-top:7px;letter-spacing:.3px;}
+
+  /* opaque output digest — rendered verbatim, NOT parsed */
+  .digest{color:var(--text-primary);white-space:pre-wrap;word-break:break-word;
+    font-size:12.5px;line-height:1.6;}
+  .digest.fail{color:var(--error);}
+  .digest.run{color:var(--gold);}
+
+  /* ---- RIGHT: event stream (larger, comfortable) ---- */
+  .stream{display:flex;flex-direction:column;min-width:0;background:var(--bg-output);}
+  .stream-head{display:flex;align-items:center;gap:8px;padding:13px 16px 9px;
+    border-bottom:1px solid var(--border);background:var(--bg-elevated);min-width:0;}
+  .stream-head .title{font-size:var(--fs-micro);letter-spacing:1.2px;text-transform:uppercase;
+    color:var(--text-tertiary);flex:0 0 auto;}
+  .stream-head .src{margin-left:auto;color:var(--text-tertiary);font-size:var(--fs-meta);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+  .stream-body{overflow:auto;padding:8px 0 10px;flex:1;}
+  .ev{display:grid;grid-template-columns:auto 18px 116px minmax(0,1fr);gap:8px;
+    align-items:baseline;padding:4px 16px;min-width:0;font-size:12px;line-height:1.5;}
+  .ev.clk{cursor:pointer;}
+  .ev:hover{background:var(--bg-elevated);}
+  .ev.clk:hover{box-shadow:inset 2px 0 0 var(--gold-dim);}
+  .ev .seq{color:var(--text-tertiary);font-size:var(--fs-meta);text-align:right;}
+  .ev .eg{text-align:center;font-size:11px;line-height:1;}
+  .ev .ename{color:var(--text-secondary);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .ev .efields{color:var(--text-tertiary);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    font-variant-numeric:tabular-nums;}
+  .ev .efields b{color:var(--text-secondary);font-weight:400;}
+  .ev.run .ename{color:var(--gold-dim);}
+  .ev .ts{display:none;}
+  .stream-foot{padding:8px 16px;border-top:1px solid var(--border);background:var(--bg-elevated);
+    color:var(--text-tertiary);font-size:var(--fs-meta);min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+  /* ============================ FOOTER keybar ============================ */
+  .footer{position:sticky;bottom:0;background:var(--bg-elevated);border-top:1px solid var(--border);
+    padding:8px 20px;display:flex;align-items:center;gap:18px;z-index:20;
+    color:var(--text-tertiary);font-size:var(--fs-meta);min-width:0;}
+  .footer .kb{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;}
+  .footer .kb .key{color:var(--gold-dim);}
+  .footer .heritage{margin-left:auto;color:var(--text-tertiary);opacity:.7;letter-spacing:.3px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+  @media (max-width:1080px){ .body{grid-template-columns:200px minmax(0,1fr);} .stream{display:none;} }
+  @media (max-width:860px){
+    .header-bar{grid-template-columns:1fr auto;row-gap:8px;}
+    .run-status{grid-column:2;justify-self:end;}
+    .rollup{grid-column:1 / -1;justify-self:start;}
+  }
+  @media (max-width:720px){
+    .body{display:flex;flex-direction:column;}
+    .phases{border-right:none;border-bottom:1px solid var(--border);max-height:32vh;}
+    .detail{border-right:none;}
+    .stream{display:flex;border-top:1px solid var(--border);min-height:40vh;}
+    .footer{flex-wrap:wrap;gap:10px 14px;}
+    .footer .heritage{display:none;}
+  }
+  @media (max-width:520px){
+    .meta-strip{grid-template-columns:1fr 1fr;}
+    .rollup{font-size:11px;gap:6px;}
+    .header-bar{padding:10px 14px;}
+    .phase,.arow,.acols{padding-left:12px;padding-right:12px;}
+  }
 </style>
 </head>
 <body>
-<div x-data="wfview()" x-init="init()">
+<div class="app">
+
+  <!-- RUN HEADER -->
   <div class="header">
     <div class="header-bar">
       <div class="brand">
         <span class="logo"><span class="paren">(</span>sema<span class="paren">)</span></span>
-        <span class="lead">Workflow</span><span class="dot-sep">—</span>
-        <span class="wf-name" data-testid="wf-name" x-text="run.workflow || '…'"></span>
+        <span class="lead">Workflow</span>
+        <span class="dot-sep">—</span>
+        <span class="wf-name" id="wfname">audit-auth</span>
       </div>
       <div class="run-status">
-        <span class="pill" data-testid="status-pill" :class="run.status" x-text="run.status || 'running'"></span>
-        <span class="elapsed tnum" x-text="durText"></span>
+        <span class="pill running" id="status-pill">running</span>
+        <span class="elapsed tnum" id="elapsed">00:00</span>
       </div>
       <div class="rollup tnum">
-        <span><span class="num" data-testid="count-phases" x-text="run.phaseCount"></span> phases</span><span class="dot-sep">·</span>
-        <span><span class="num" data-testid="count-agents" x-text="run.agentCount"></span> agents</span><span class="dot-sep">·</span>
-        <span><span class="num" data-testid="count-checkpoints" x-text="run.checkpointCount"></span> checkpoints</span>
+        <span><span class="num" id="r-phases">0</span> phases</span>
+        <span class="dot-sep">·</span>
+        <span><span class="num" id="r-agents">0</span> agents</span>
+        <span class="dot-sep">·</span>
+        <span><span class="num" id="r-tokens">0</span> tok</span>
+        <span class="dot-sep">·</span>
+        <span class="num" id="r-cost">—</span>
       </div>
     </div>
     <div class="meta-strip">
-      <div class="meta-cell"><b>run</b> <span x-text="run.runId || '—'"></span></div>
-      <div class="meta-cell"><b>started</b> <span x-text="run.startedTs || '—'"></span></div>
-      <div class="meta-cell" x-show="run.codeVersion"><b>version</b> <span x-text="run.codeVersion"></span></div>
+      <div class="meta-cell"><span class="k">run id</span><span class="v ell tnum" id="m-runid"></span></div>
+      <div class="meta-cell"><span class="k">workflow</span><span class="v ell" id="m-wf"></span></div>
+      <div class="meta-cell"><span class="k">code version</span><span class="v ell tnum" id="m-code"></span></div>
+      <div class="meta-cell"><span class="k">started</span><span class="v ell tnum" id="m-started"></span></div>
+      <div class="meta-cell">
+        <span class="k">budget (tokens)</span>
+        <span class="budget-line tnum">
+          <span class="bnum" id="m-bud-used">0</span>
+          <span class="budget-bar"><i id="m-bud-fill" style="width:0%"></i></span>
+          <span class="bnum"><span id="m-bud-pct">0</span>%</span>
+        </span>
+      </div>
     </div>
   </div>
 
-  <div class="runs-bar" x-show="runs.length > 1">
-    <template x-for="r in runs" :key="r">
-      <span class="run-chip" :class="r === selected && 'active'" @click="select(r)" x-text="r"></span>
-    </template>
+  <!-- BODY -->
+  <div class="body">
+    <div class="phases" id="phases"><div class="col-label">Phases</div></div>
+    <div class="detail" id="detail"></div>
+    <div class="stream">
+      <div class="stream-head">
+        <span class="title">Event stream</span>
+        <span class="src ell">events.jsonl · seq &gt; <span id="stream-cursor">0</span></span>
+      </div>
+      <div class="stream-body" id="stream-body"></div>
+    </div>
   </div>
 
-  <div class="tree">
-    <div class="empty" x-show="!run.phases || run.phases.length === 0" x-text="loading ? 'Loading…' : 'No events yet.'"></div>
-    <template x-for="(ph, pi) in run.phases" :key="pi">
-      <div class="phase" data-testid="phase">
-        <div class="phase-head" @click="ph.open = !ph.open">
-          <span class="glyph" :class="glyphClass(ph.status)" x-html="glyph(ph.status)"></span>
-          <span class="phase-name" data-testid="phase-name" x-text="ph.name"></span>
-          <span class="phase-dur" x-show="ph.status !== 'running'" x-text="ms(ph.durMs)"></span>
-        </div>
-        <div class="rows" x-show="ph.open">
-          <template x-for="(row, ri) in ph.rows" :key="ri">
-            <div>
-              <!-- agent row (mutates in place started -> result) -->
-              <template x-if="row.kind === 'agent'">
-                <div>
-                  <div class="row agent" data-testid="agent-row" :data-status="row.status" @click="row.open = !row.open">
-                    <span class="conn">├─</span>
-                    <span class="glyph" :class="glyphClass(row.status)" x-html="glyph(row.status)"></span>
-                    <span class="agent-name" data-testid="agent-name" x-text="row.name"></span>
-                    <span class="agent-meta" x-text="row.status === 'running' ? 'running…' : ms(row.durMs)"></span>
-                  </div>
-                  <template x-for="(tc, ti) in row.tools" :key="ti">
-                    <div class="twig">│  ├─ tool: <span x-text="tc.tool"></span> <span x-text="tc.argsDigest"></span></div>
-                  </template>
-                  <div class="disclosure" data-testid="disclosure" x-show="row.open" x-text="row.output || '(no output yet)'"></div>
-                </div>
-              </template>
-              <!-- checkpoint line -->
-              <template x-if="row.kind === 'checkpoint'">
-                <div class="row line-cp"><span class="conn">├─</span> saved <span class="kw" x-text="':' + row.key"></span>
-                  <span class="agent-meta" x-text="row.digest"></span></div>
-              </template>
-              <!-- budget line -->
-              <template x-if="row.kind === 'budget'">
-                <div class="row line-budget"><span class="conn">├─</span> budget <span x-text="row.text"></span></div>
-              </template>
-            </div>
-          </template>
-        </div>
-      </div>
-    </template>
+  <!-- FOOTER keybar -->
+  <div class="footer">
+    <span class="kb"><span class="key">↑↓</span> select</span>
+    <span class="kb"><span class="key">⏎</span> open</span>
+    <span class="kb"><span class="key">esc</span> collapse</span>
+    <span class="kb"><span class="key">tab</span> phase</span>
+    <span class="heritage ell">sema workflows · live · events.jsonl → sqlite</span>
   </div>
+
 </div>
 
 <script>
-function wfview(){
-  return {
-    runs: [], selected: null, loading: true, run: {phases: []}, _timer: null,
-    get durText(){ return this.run.durMs != null ? this.ms(this.run.durMs) : '··:··'; },
-    ms(m){ if(m==null) return ''; if(m<1000) return m+'ms'; return (m/1000).toFixed(1)+'s'; },
-    glyph(s){ return s==='running' ? '<span class="spin">◐</span>' : s==='failed' ? '✗' : '✓'; },
-    glyphClass(s){ return s==='running' ? 'g-run' : s==='failed' ? 'g-fail' : 'g-ok'; },
-    async init(){
-      const url = new URL(location.href);
-      try{
-        const r = await fetch('/api/runs'); this.runs = await r.json();
-      }catch(e){ this.runs = []; }
-      const want = url.searchParams.get('run');
-      this.selected = (want && this.runs.includes(want)) ? want : this.runs[0] || null;
-      if(this.selected) this.load();
-      else this.loading = false;
-    },
-    select(r){ this.selected = r; this.load(); },
-    async load(){
-      this.loading = true;
-      try{
-        const res = await fetch('/api/run/' + encodeURIComponent(this.selected) + '/events.jsonl');
-        const text = await res.text();
-        const events = text.split('\n').filter(l => l.trim()).map(l => { try{return JSON.parse(l)}catch(e){return null} }).filter(Boolean);
-        this.run = this.build(events);
-      }catch(e){ this.run = {phases: []}; }
-      this.loading = false;
-      // follow-live: poll until the run ends
-      clearTimeout(this._timer);
-      if(this.run.status === 'running') this._timer = setTimeout(() => this.load(), 1000);
-    },
-    build(events){
-      const run = {workflow:'', runId:'', codeVersion:'', startedTs:'', status:'running',
-                   durMs:null, phaseCount:0, agentCount:0, checkpointCount:0, phases:[]};
-      let phase = null;
-      const agentsByName = {};
-      for(const e of events){
-        switch(e.event){
-          case 'run.started':
-            run.workflow=e.workflow; run.runId=e.run_id; run.codeVersion=e.code_version||''; run.startedTs=e.ts; break;
-          case 'run.ended':
-            run.status = e.status; run.durMs = e.dur_ms; break;
-          case 'phase.started':
-            phase = {name:e.phase, status:'running', durMs:null, open:true, rows:[]};
-            run.phases.push(phase); run.phaseCount++; break;
-          case 'phase.ended':
-            if(phase){ phase.status = e.status; phase.durMs = e.dur_ms; } break;
-          case 'agent.started': {
-            const row = {kind:'agent', name:e.agent, status:'running', durMs:null, output:'', open:false, tools:[]};
-            if(phase) phase.rows.push(row);
-            agentsByName[e.agent] = row; run.agentCount++; break;
-          }
-          case 'agent.result': {
-            const row = agentsByName[e.agent];
-            if(row){ row.durMs=e.dur_ms; row.output=e.output||'';
-              row.status = (row.output && row.output.startsWith('error:')) ? 'failed' : 'ok'; }
-            break;
-          }
-          case 'agent.tool_call': {
-            const row = agentsByName[e.agent];
-            if(row) row.tools.push({tool:e.tool, argsDigest:e.args_digest||''}); break;
-          }
-          case 'checkpoint':
-            if(phase) phase.rows.push({kind:'checkpoint', key:e.key, digest:(e.value_digest||'').slice(0,8)});
-            run.checkpointCount++; break;
-          case 'budget': {
-            const used = (e.tokens_used||0), cap = e.max_tokens;
-            const txt = cap ? `${used}/${cap} tok` : `${used} tok`;
-            if(phase) phase.rows.push({kind:'budget', text:txt}); break;
-          }
-        }
+/* =========================================================================
+   MOCK DATA = events.jsonl for the audit-auth run, matching audit_run_shape.
+   Each line is one frozen-vocabulary event (serde tag="event"), seq monotonic,
+   ts fixed (SEMA_WORKFLOW_FIXED_TS=0 => dur_ms=0). The ONLY fields present are
+   those the real journal carries. No target/, no batch/, no narrator/, no
+   item_count/, no per-agent usage inside agent.result; budget events carry an
+   OPTIONAL agent_id (the only way per-agent tokens become attributable).
+
+   Frozen vocab (scoping §3.5): run.started, phase.started, phase.ended,
+   agent.started, agent.result, agent.tool_call, checkpoint, budget, run.ended.
+   ========================================================================= */
+// Live data — fetched from the viewer server in load(); see init() at the bottom.
+let EVENTS = [];
+let RESULT_ENVELOPE = {};
+let SELECTED_RUN = null;
+function emptyModel(){ return { run:{ended:false,status:null}, phases:[], phaseBySeq:new Map(), agents:new Map(), latestBudgetLimit:null }; }
+let M = emptyModel();
+
+/* =========================================================================
+   PROJECTION — exactly the SQLite tables the journal projects into.
+   ========================================================================= */
+const G = { run:"◐", ok:"✓", fail:"✗", pend:"○", cp:"◇", bud:"·", twig:"└" };
+
+function esc(s){ return String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function fmtTok(n){ if(n==null) return "—"; return n>=1000 ? (n/1000).toFixed(1)+"k" : String(n); }
+function fmtCost(c){ if(c==null) return "—"; return "$"+c.toFixed(4); }     // null => genuinely absent (unpriced)
+function fmtMs(ms){ if(ms==null) return ""; return ms===0 ? "0ms" : (ms/1000).toFixed(2)+"s"; }
+function shortHash(s){ return s; }
+
+/* runs / phases / agents / tool_calls / checkpoints / usage */
+function project(events){
+  const run = { ended:false, status:null };
+  const phases = [];                 // ordered by start_seq
+  const phaseBySeq = new Map();
+  const agents = new Map();          // agent_id -> agent
+  let curPhaseSeq = null;
+  let latestBudgetLimit = null;
+
+  for(const e of events){
+    switch(e.event){
+      case "run.started":
+        run.run_id=e.run_id; run.workflow=e.workflow; run.code_version=e.code_version;
+        run.started_ts=e.ts; run.started_seq=e.seq; run.args_json=e.args_json; break;
+      case "run.ended":
+        run.ended=true; run.status=e.status; break;
+      case "phase.started": {
+        const p={ start_seq:e.seq, phase:e.phase, status:null, dur_ms:null,
+                  agents:[], checkpoints:[] };
+        phases.push(p); phaseBySeq.set(e.seq,p); curPhaseSeq=e.seq; break;
       }
-      return run;
-    },
-  };
+      case "phase.ended": {
+        // last open phase with this label
+        for(let i=phases.length-1;i>=0;i--){ if(phases[i].phase===e.phase && phases[i].status==null){
+          phases[i].status=e.status; phases[i].dur_ms=e.dur_ms; break; } }
+        break;
+      }
+      case "agent.started": {
+        const a={ agent_id:e.agent_id, phase_seq:curPhaseSeq, agent_name:e.agent_name,
+                  model:e.model, start_seq:e.seq, status:null, output:null, dur_ms:null,
+                  tools:[], in_tokens:null, out_tokens:null, cost_usd:null, has_usage:false };
+        agents.set(e.agent_id,a);
+        const p=phaseBySeq.get(curPhaseSeq); if(p) p.agents.push(a); break;
+      }
+      case "agent.result": {
+        const a=agents.get(e.agent_id);
+        if(a){ a.status=e.status; a.output=e.output; a.dur_ms=e.dur_ms; } break;
+      }
+      case "agent.tool_call": {
+        const a=agents.get(e.agent_id);
+        // args_json is content-gated: a sentinel "gated" means no readable content captured.
+        const gated = e.args_json==="gated";
+        if(a) a.tools.push({ seq:e.seq, tool_name:e.tool_name, gated }); break;
+      }
+      case "checkpoint": {
+        const p=phaseBySeq.get(e.phase_seq);
+        const cp={ seq:e.seq, phase_seq:e.phase_seq, key:e.key,
+                   content_key:e.content_key, value_digest:e.value_digest };
+        if(p) p.checkpoints.push(cp); break;
+      }
+      case "budget": {
+        latestBudgetLimit = e.budget_limit ?? latestBudgetLimit;
+        if(e.agent_id){
+          const a=agents.get(e.agent_id);
+          if(a){ a.has_usage=true;
+                 a.in_tokens=(a.in_tokens||0)+(e.input_tokens||0);
+                 a.out_tokens=(a.out_tokens||0)+(e.output_tokens||0);
+                 if(e.cost_usd!=null) a.cost_usd=(a.cost_usd||0)+e.cost_usd; }
+        }
+        break;
+      }
+    }
+  }
+  return { run, phases, phaseBySeq, agents, latestBudgetLimit };
 }
+
+/* M is (re)built in load() */
+
+/* run-level rollups (Q1) — SUM over usage rows; never a mutated counter. */
+function rollup(){
+  let tok=0, cost=null, anyCost=false;
+  for(const a of M.agents.values()){
+    if(a.has_usage){ tok += (a.in_tokens||0)+(a.out_tokens||0);
+      if(a.cost_usd!=null){ cost=(cost||0)+a.cost_usd; anyCost=true; } }
+  }
+  const running = [...M.agents.values()].filter(a=>a.status==null).length;
+  return { phases:M.phases.length, agents:M.agents.size, agents_running:running,
+           tokens:tok, cost:anyCost?cost:null, budget_limit:M.latestBudgetLimit };
+}
+
+/* =========================================================================
+   STATE
+   ========================================================================= */
+let selPhaseSeq = null;
+let selAgent = null;
+let capturedOpen = false;  // honest disclosure of the (gated) captured panel
+
+function phaseProgress(p){
+  const total=p.agents.length;
+  const done=p.agents.filter(a=>a.status!=null).length;
+  return { done, total };
+}
+function phaseHasFail(p){ return p.status==="failed" || p.agents.some(a=>a.status==="failed"); }
+function phaseOpen(p){ return p.status==null; }
+function agentStatus(a){ return a.status==null ? "running" : a.status; }   // COALESCE(status,'running')
+
+/* =========================================================================
+   RENDER — phases (left ledger)
+   ========================================================================= */
+const phasesEl = document.getElementById("phases");
+const detailEl = document.getElementById("detail");
+const streamBody = document.getElementById("stream-body");
+
+function pGlyph(p){
+  if(phaseOpen(p)) return `<span class="pglyph g-run pulse">${G.run}</span>`;
+  if(phaseHasFail(p)) return `<span class="pglyph g-fail">${G.fail}</span>`;
+  return `<span class="pglyph g-ok">${G.ok}</span>`;
+}
+
+function renderPhases(){
+  let html = `<div class="col-label">Phases · ${M.phases.length}</div>`;
+  for(const p of M.phases){
+    const { done, total } = phaseProgress(p);
+    const active = p.start_seq===selPhaseSeq;
+    const cls = ["phase", active?"active":"", phaseOpen(p)?"live":"done",
+                 phaseHasFail(p)?"has-fail":""].filter(Boolean).join(" ");
+    html += `<div class="${cls}" data-seq="${p.start_seq}" data-testid="phase" data-phase-name="${esc(p.phase)}">`+
+            pGlyph(p)+
+            `<span class="pname ell">${esc(p.phase)}</span>`+
+            `<span class="count tnum">${done}/${total}</span></div>`;
+  }
+  phasesEl.innerHTML = html;
+  phasesEl.querySelectorAll(".phase").forEach(el=>{
+    el.onclick = ()=>{
+      selPhaseSeq = Number(el.dataset.seq);
+      const p = M.phaseBySeq.get(selPhaseSeq);
+      if(p && p.agents.length){
+        if(!p.agents.find(a=>a.agent_id===selAgent)){
+          const live = p.agents.find(a=>a.status==null);
+          selAgent = (live||p.agents[0]).agent_id;
+        }
+      } else selAgent = null;
+      capturedOpen=false; renderDetail();
+    };
+  });
+}
+
+/* =========================================================================
+   RENDER — agents (center, dense aligned ledger) + drill-in
+   ========================================================================= */
+function aGlyph(s,cls){
+  if(s==="running") return `<span class="${cls} g-run pulse">${G.run}</span>`;
+  if(s==="ok")      return `<span class="${cls} g-ok">${G.ok}</span>`;
+  if(s==="failed")  return `<span class="${cls} g-fail">${G.fail}</span>`;
+  return `<span class="${cls} g-pend">${G.pend}</span>`;
+}
+
+function renderDetail(){
+  const p = M.phaseBySeq.get(selPhaseSeq);
+  if(!p){ detailEl.innerHTML=""; return; }
+
+  const { done, total } = phaseProgress(p);
+  const sub = [];
+  if(phaseOpen(p)) sub.push(`live`);
+  else sub.push(`${p.status}`);
+  if(!phaseOpen(p)) sub.push(fmtMs(p.dur_ms));
+  if(p.checkpoints.length) sub.push(`${p.checkpoints.length} checkpoint${p.checkpoints.length>1?"s":""}`);
+
+  let html =
+    `<div class="agents-head"><span class="title">${esc(p.phase)} · ${done}/${total}</span>`+
+    `<span class="sub ell">${sub.join(" · ")}</span></div>`;
+
+  // checkpoint lines (quiet) — names + digests only
+  for(const c of p.checkpoints){
+    html += `<div class="arow" style="grid-template-columns:16px 1fr auto;cursor:default" title="resume key">`+
+      `<span class="aglyph g-pend">${G.cp}</span>`+
+      `<span class="albl"><span style="color:var(--text-secondary)">saved ${esc(c.key)}</span></span>`+
+      `<span class="c tnum" title="content_key (resume) · value_digest">`+
+        `${esc(c.content_key)} · ${esc(c.value_digest)}</span></div>`;
+  }
+
+  if(p.agents.length){
+    html += `<div class="acols">`+
+      `<span></span><span>agent · model</span>`+
+      `<span class="r">tok</span><span class="r">tools</span><span class="r">dur</span></div>`;
+  } else if(!p.checkpoints.length){
+    html += `<div style="padding:16px 18px;color:var(--text-tertiary);font-size:12.5px">`+
+            `Pure-compute phase — no agents journaled.</div>`;
+  }
+
+  for(const a of p.agents){
+    const st = agentStatus(a);
+    const sel = a.agent_id===selAgent;
+    const stCls = st==="running"?"run":(st==="failed"||st==="ok"?"":"dim");
+    const cls = ["arow", stCls, sel?"sel":""].filter(Boolean).join(" ");
+    // per-agent tokens/cost ONLY if a budget event stamped this agent_id; else blank, never invented.
+    const tok = a.has_usage ? `<span class="c tok tnum">${fmtTok((a.in_tokens||0)+(a.out_tokens||0))}</span>`
+                            : `<span class="c blank tnum">—</span>`;
+    const dur = a.dur_ms!=null ? `<span class="c tnum">${fmtMs(a.dur_ms)}</span>`
+                               : `<span class="c blank tnum">…</span>`;   // blank while running
+    html +=
+      `<div class="${cls}" data-agent="${a.agent_id}" data-testid="agent-row" data-status="${st}">`+
+      aGlyph(st,"aglyph")+
+      `<span class="albl"><span class="aname">${esc(a.agent_id)}</span>`+
+        `<span class="amodel">${esc(a.model)}</span></span>`+
+      tok+
+      `<span class="c tnum">${a.tools.length}</span>`+
+      dur+
+      `</div>`;
+  }
+
+  const a = p.agents.find(x=>x.agent_id===selAgent);
+  if(a) html += renderDrill(a);
+
+  detailEl.innerHTML = html;
+  detailEl.querySelectorAll(".arow[data-agent]").forEach(el=>{
+    el.onclick = ()=>{ selAgent=el.dataset.agent; capturedOpen=false; renderDetail(); };
+  });
+  wireDrill();
+}
+
+function renderDrill(a){
+  const st = agentStatus(a);
+  const dglyph = aGlyph(st,"dglyph");
+  const meta = [];
+  meta.push(esc(a.model));
+  if(a.has_usage) meta.push(fmtTok((a.in_tokens||0)+(a.out_tokens||0))+" tok");
+  if(a.has_usage) meta.push(a.cost_usd!=null ? fmtCost(a.cost_usd) : "cost —");
+  if(a.dur_ms!=null) meta.push(fmtMs(a.dur_ms));
+
+  // tool twigs: tool_name + presence only (args content-gated off by default)
+  let twigs="";
+  if(a.tools.length){
+    twigs = a.tools.map(t=>
+      `<div class="twig"><span class="tg">${G.twig}</span>`+
+      `<span class="tname">${esc(t.tool_name)}</span>`+
+      `<span class="tgate">${t.gated?"args content-gated":"args captured"}</span></div>`).join("");
+  } else {
+    twigs = `<div class="twig" style="color:var(--text-tertiary)">no tool calls journaled</div>`;
+  }
+
+  // OUTPUT: opaque string/digest, rendered verbatim. Empty-able. NOT parsed for findings.
+  const hasOutput = a.output!=null && a.output!=="";
+  let digestCls="digest", digestHtml;
+  if(st==="failed"){ digestCls+=" fail"; digestHtml = hasOutput?esc(a.output):"(no output digest)"; }
+  else if(st==="running"){ digestCls+=" run"; digestHtml = "running — no agent.result yet"; }
+  else digestHtml = hasOutput?esc(a.output):"(empty)";
+
+  // captured panel for the agent's output — honestly opaque
+  const capCls = ["captured", capturedOpen?"open":"", hasOutput?"":"empty"].join(" ");
+  const capBody = hasOutput
+    ? `opaque output digest — full value (if journaled) lives in checkpoints/ on disk, not in SQLite`
+    : `nothing captured — agent.result.output is opaque and may be a digest only`;
+
+  return (
+    `<div class="drill" data-testid="drill">`+
+      `<div class="drill-top">${dglyph}`+
+        `<span class="dname">${esc(a.agent_id)}</span>`+
+        `<span class="dmeta tnum">${meta.join(" · ")}</span></div>`+
+
+      // PROMPT — never in the journal; honest empty captured panel
+      `<div class="drill-sec">`+
+        `<div class="sec-label">Prompt <span class="gate">not in journal</span></div>`+
+        `<div class="captured empty">prompt / system text is never in events.jsonl `+
+        `(only on OTel GenAI spans with content-capture ON — a separate sink)</div>`+
+      `</div>`+
+
+      // TOOL CALLS — names + presence, count from tool_calls table
+      `<div class="drill-sec">`+
+        `<div class="sec-label">Tool calls <span class="note">${a.tools.length} · COUNT(tool_calls)</span></div>`+
+        `<div class="twigs">${twigs}</div>`+
+        `<div class="twigs-foot">args_json content-gated off by default · no per-tool duration in vocab</div>`+
+      `</div>`+
+
+      // OUTPUT DIGEST — opaque, verbatim, empty-able
+      `<div class="drill-sec">`+
+        `<div class="sec-label">${st==="failed"?"Output (failed)":"Output digest"} `+
+          `<span class="gate">opaque string</span>`+
+          `<span class="expand" id="cap-toggle">${capturedOpen?"collapse":"explain"}</span></div>`+
+        `<div class="${digestCls}">${digestHtml}</div>`+
+        `<div class="${capCls}" id="cap-body">${capBody}</div>`+
+      `</div>`+
+    `</div>`
+  );
+}
+
+function wireDrill(){
+  const t=document.getElementById("cap-toggle");
+  if(t){ t.onclick=()=>{ capturedOpen=!capturedOpen;
+    const b=document.getElementById("cap-body"); if(b) b.classList.toggle("open",capturedOpen);
+    t.textContent=capturedOpen?"collapse":"explain"; }; }
+}
+
+/* =========================================================================
+   RENDER — event stream (right, the raw jsonl-derived rows)
+   ========================================================================= */
+function evGlyph(e){
+  switch(e.event){
+    case "run.started": return `<span class="eg g-pend">${G.cp}</span>`;
+    case "run.ended":   return `<span class="eg g-ok">${G.ok}</span>`;
+    case "phase.started": return `<span class="eg g-run">${G.run}</span>`;
+    case "phase.ended":   return `<span class="eg ${e.status==="failed"?"g-fail":"g-ok"}">${e.status==="failed"?G.fail:G.ok}</span>`;
+    case "agent.started": return `<span class="eg g-run pulse">${G.run}</span>`;
+    case "agent.result":  return `<span class="eg ${e.status==="failed"?"g-fail":"g-ok"}">${e.status==="failed"?G.fail:G.ok}</span>`;
+    case "agent.tool_call": return `<span class="eg g-pend">${G.twig}</span>`;
+    case "checkpoint":    return `<span class="eg g-pend">${G.cp}</span>`;
+    case "budget":        return `<span class="eg g-pend">${G.bud}</span>`;
+    default: return `<span class="eg g-pend">${G.bud}</span>`;
+  }
+}
+function evFields(e){
+  switch(e.event){
+    case "run.started": return `<b>${esc(e.workflow)}</b> code ${esc(e.code_version)} args ${esc(e.args_json)}`;
+    case "run.ended":   return `status <b>${esc(e.status)}</b>`;
+    case "phase.started": return `phase <b>${esc(e.phase)}</b>`;
+    case "phase.ended":   return `phase <b>${esc(e.phase)}</b> status ${esc(e.status)} dur ${e.dur_ms}ms`;
+    case "agent.started": return `<b>${esc(e.agent_id)}</b> ${esc(e.agent_name)} · ${esc(e.model)}`;
+    case "agent.result":  return `<b>${esc(e.agent_id)}</b> status ${esc(e.status)} output ${esc(e.output)} dur ${e.dur_ms}ms`;
+    case "agent.tool_call": return `<b>${esc(e.agent_id)}</b> ${esc(e.tool_name)} args ${e.args_json==="gated"?"(gated)":esc(e.args_json)}`;
+    case "checkpoint":    return `${esc(e.key)} content_key ${esc(e.content_key)} digest ${esc(e.value_digest)}`;
+    case "budget":        return `${e.agent_id?esc(e.agent_id)+" ":""}in ${e.input_tokens} out ${e.output_tokens} cost ${e.cost_usd==null?"—":"$"+e.cost_usd.toFixed(4)}`;
+    default: return "";
+  }
+}
+function phaseSeqForEvent(e){
+  if(e.event==="phase.started") return e.seq;
+  if(e.event==="phase.ended"){ const p=[...M.phases].reverse().find(p=>p.phase===e.phase); return p?p.start_seq:null; }
+  if(e.event==="checkpoint") return e.phase_seq;
+  return null;
+}
+function jumpToAgent(id){
+  const a=M.agents.get(id); if(!a) return;
+  selPhaseSeq=a.phase_seq; selAgent=id; capturedOpen=false;
+  renderPhases(); renderDetail();
+  const row=detailEl.querySelector(`.arow[data-agent="${CSS.escape(id)}"]`);
+  if(row) row.scrollIntoView({block:"nearest"});
+}
+function jumpToPhase(seq){
+  const p=M.phaseBySeq.get(seq); if(!p) return;
+  selPhaseSeq=seq;
+  const live=p.agents.find(a=>a.status==null); selAgent=(live||p.agents[0])?.agent_id||null;
+  capturedOpen=false; renderPhases(); renderDetail();
+}
+function renderStream(){
+  let html="";
+  for(const e of EVENTS){
+    const live = e.event==="agent.started" && M.agents.get(e.agent_id)?.status==null;
+    const agentId = e.agent_id || null;              // agent.* / budget jump to that agent
+    const phaseId = agentId ? null : phaseSeqForEvent(e);  // phase.* / checkpoint jump to the phase
+    const clk = (agentId || phaseId!=null) ? " clk" : "";
+    const data = agentId ? ` data-ev-agent="${esc(agentId)}"`
+                         : (phaseId!=null ? ` data-ev-phase="${phaseId}"` : "");
+    html += `<div class="ev${live?" run":""}${clk}" data-testid="ev-row"${data}>`+
+      `<span class="seq tnum">${e.seq}</span>`+
+      evGlyph(e)+
+      `<span class="ename">${esc(e.event)}</span>`+
+      `<span class="efields">${evFields(e)}</span></div>`;
+  }
+  streamBody.innerHTML = html;
+  document.getElementById("stream-cursor").textContent = (EVENTS.length ? EVENTS[EVENTS.length-1].seq : 0);
+  streamBody.querySelectorAll(".ev[data-ev-agent]").forEach(el=>
+    el.onclick=()=>jumpToAgent(el.dataset.evAgent));
+  streamBody.querySelectorAll(".ev[data-ev-phase]").forEach(el=>
+    el.onclick=()=>jumpToPhase(Number(el.dataset.evPhase)));
+}
+
+/* =========================================================================
+   HEADER + LIVE TICK
+   ========================================================================= */
+function paintHeader(){
+  const r = rollup();
+  document.getElementById("wfname").textContent = M.run.workflow;
+  const live = !M.run.ended;
+  const pill = document.getElementById("status-pill");
+  const st = M.run.status || (live?"running":"success");
+  pill.className = "pill "+(live?"running":(st==="failed"?"failed":"success"));
+  pill.textContent = st;
+
+  document.getElementById("r-phases").textContent = r.phases;
+  document.getElementById("r-agents").textContent = r.agents;
+  document.getElementById("r-tokens").textContent = fmtTok(r.tokens);
+  document.getElementById("r-cost").textContent = r.cost==null ? "$— cost" : "$"+r.cost.toFixed(4);
+
+  document.getElementById("m-runid").textContent = M.run.run_id;
+  document.getElementById("m-wf").textContent = M.run.workflow;
+  document.getElementById("m-code").textContent = M.run.code_version;
+  document.getElementById("m-started").textContent = M.run.started_ts;
+
+  const cap = r.budget_limit || 250000;
+  const pct = Math.round((r.tokens/cap)*100);
+  document.getElementById("m-bud-used").textContent = fmtTok(r.tokens)+" / "+fmtTok(cap);
+  document.getElementById("m-bud-pct").textContent = pct;
+  document.getElementById("m-bud-fill").style.width = Math.min(pct,100)+"%";
+}
+
+/* wall-clock elapsed — ticks while run is live (ended_ts IS NULL).
+   NOTE: dur_ms per leaf is 0 under the fixed-ts seam; this header timer is the
+   client-side started_ts->now wall clock (always-available), not a leaf latency. */
+const T0 = Date.now() - 11000;
+function tick(){
+  if(M.run.ended) return;
+  const s = Math.floor((Date.now()-T0)/1000);
+  const mm=String(Math.floor(s/60)).padStart(2,"0");
+  const ss=String(s%60).padStart(2,"0");
+  document.getElementById("elapsed").textContent = `${mm}:${ss}`;
+}
+
+/* keyboard */
+document.addEventListener("keydown",(e)=>{
+  if(e.key==="Tab"){ e.preventDefault();
+    const i=M.phases.findIndex(p=>p.start_seq===selPhaseSeq);
+    const np=M.phases[(i+(e.shiftKey?-1:1)+M.phases.length)%M.phases.length];
+    selPhaseSeq=np.start_seq;
+    const live=np.agents.find(a=>a.status==null); selAgent=(live||np.agents[0])?.agent_id||null;
+    capturedOpen=false; renderDetail(); renderPhases(); return; }
+  const p=M.phaseBySeq.get(selPhaseSeq);
+  if(!p||!p.agents.length) return;
+  const idx=p.agents.findIndex(a=>a.agent_id===selAgent);
+  if(e.key==="ArrowDown"){ e.preventDefault();
+    selAgent=p.agents[Math.min(idx+1,p.agents.length-1)].agent_id; capturedOpen=false; renderDetail(); }
+  else if(e.key==="ArrowUp"){ e.preventDefault();
+    selAgent=p.agents[Math.max(idx-1,0)].agent_id; capturedOpen=false; renderDetail(); }
+  else if(e.key==="Escape"){ capturedOpen=false; renderDetail(); }
+});
+
+/* boot */
+
+/* =========================================================================
+   LOAD — fetch the run journal + result envelope from the viewer server and
+   (re)project + render. Polls while the run is live (no run.ended yet).
+   ========================================================================= */
+async function fetchRuns(){ try{ const r=await fetch('/api/runs'); return await r.json(); }catch(e){ return []; } }
+async function loadRun(runId){
+  let text='';
+  try{ const r=await fetch('/api/run/'+encodeURIComponent(runId)+'/events.jsonl'); text=await r.text(); }catch(e){}
+  EVENTS = text.split('\n').filter(l=>l.trim()).map(l=>{try{return JSON.parse(l);}catch(e){return null;}}).filter(Boolean);
+  try{ const r=await fetch('/api/run/'+encodeURIComponent(runId)+'/result.json'); RESULT_ENVELOPE=await r.json(); }catch(e){ RESULT_ENVELOPE={}; }
+  M = project(EVENTS);
+  // Default selection: the open/live phase (or the last phase), and its live/first agent.
+  if(selPhaseSeq==null || !M.phaseBySeq.has(selPhaseSeq)){
+    const live = M.phases.find(p=>p.status==null);
+    const p = live || M.phases[M.phases.length-1];
+    selPhaseSeq = p ? p.start_seq : null;
+    if(p){ const la=p.agents.find(x=>x.status==null); selAgent=(la||p.agents[0])?.agent_id||null; }
+  }
+  paintHeader(); renderPhases(); renderDetail(); renderStream();
+  return !M.run.ended;
+}
+async function init(){
+  const runs = await fetchRuns();
+  const want = new URL(location.href).searchParams.get('run');
+  SELECTED_RUN = (want && runs.includes(want)) ? want : runs[0] || null;
+  if(!SELECTED_RUN){ document.getElementById('detail').innerHTML='<div style="padding:18px;color:var(--text-tertiary)">No runs found.</div>'; return; }
+  let live = await loadRun(SELECTED_RUN);
+  tick(); setInterval(tick,1000);
+  // follow-live: re-poll the journal until the run ends.
+  const poll = setInterval(async ()=>{ if(!await loadRun(SELECTED_RUN)) clearInterval(poll); }, 1000);
+}
+
+init();
 </script>
 </body>
 </html>
