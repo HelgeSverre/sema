@@ -14,4 +14,4 @@ Run a thunk inside a typed **TOOL** span for a tool you invoke yourself. Sets `g
   {:call-id "c-1"})
 ```
 
-See the [Observability guide](/docs/llm/observability).
+See the Observability guide.

@@ -17,9 +17,7 @@ pub fn build_builtin_docs() -> HashMap<String, String> {
         let text = if e.body.trim().is_empty() {
             e.summary.clone()
         } else {
-            // Make root-relative `/docs/…` cross-references absolute, so an MCP client
-            // gets a real URL rather than a path it can't resolve.
-            sema_docs::absolutize_doc_links(&e.body)
+            e.body.clone()
         };
         if text.trim().is_empty() {
             continue;

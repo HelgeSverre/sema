@@ -14,4 +14,4 @@ Set one attribute on the innermost active span (the current `otel/span`, `agent/
   (otel/set-attribute :cache.hit true))
 ```
 
-See the [Observability guide](/docs/llm/observability).
+See the Observability guide.

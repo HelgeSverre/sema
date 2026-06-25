@@ -89,9 +89,7 @@ pub fn render_markdown(e: &DocEntry) -> String {
         md.push_str("\n```\n\n");
     }
 
-    // Root-relative `/docs/…` cross-references are dead in an editor hover (no base
-    // URL); make them absolute so they're live links.
-    md.push_str(&sema_docs::absolutize_doc_links(e.body.trim()));
+    md.push_str(e.body.trim());
 
     // Parameter docs, if any carry descriptions.
     if e.params.iter().any(|p| p.doc.is_some()) {
@@ -142,37 +140,6 @@ mod tests {
         let e = docs.get("string/split").expect("string/split");
         let md = render_markdown(e);
         assert!(md.contains("Split"), "rendered: {md}");
-    }
-
-    #[test]
-    fn hover_render_absolutizes_root_relative_links() {
-        // A root-relative cross-reference in the body is dead in an editor hover; the
-        // renderer must make it absolute so it's a live link.
-        let e = DocEntry {
-            name: "x".into(),
-            aliases: vec![],
-            module: "m".into(),
-            section: None,
-            summary: "s".into(),
-            params: vec![],
-            returns: None,
-            since: None,
-            deprecated: false,
-            see_also: vec![],
-            examples: vec![],
-            body: "See the [Observability guide](/docs/llm/observability).".into(),
-            syntax: None,
-            special_form: false,
-        };
-        let md = render_markdown(&e);
-        assert!(
-            md.contains("(https://sema-lang.com/docs/llm/observability)"),
-            "relative link must be absolutized: {md}"
-        );
-        assert!(
-            !md.contains("](/docs/"),
-            "no root-relative link should remain: {md}"
-        );
     }
 
     #[test]

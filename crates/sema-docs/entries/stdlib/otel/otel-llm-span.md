@@ -16,4 +16,4 @@ Run a thunk inside a typed **LLM/generation** span for an LLM call you make your
       resp)))
 ```
 
-See the [Observability guide](/docs/llm/observability).
+See the Observability guide.

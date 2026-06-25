@@ -117,20 +117,3 @@ fn leading_heading_is_skipped_for_summary() {
     let e = parse_entry(&PathBuf::from("z.md"), src, "m", false).unwrap();
     assert_eq!(e.summary, "Does the thing.");
 }
-
-#[test]
-fn absolutize_makes_root_relative_links_clickable() {
-    let body = "See the [Observability guide](/docs/llm/observability) and `pipeline`.";
-    let out = sema_docs::absolutize_doc_links(body);
-    assert_eq!(
-        out,
-        "See the [Observability guide](https://sema-lang.com/docs/llm/observability) and `pipeline`."
-    );
-    // Absolute links and non-links are untouched.
-    let abs = "[x](https://example.com) and `](/` in code is not a link wrapper here";
-    assert_eq!(
-        sema_docs::absolutize_doc_links("[x](https://example.com)"),
-        "[x](https://example.com)"
-    );
-    let _ = abs;
-}

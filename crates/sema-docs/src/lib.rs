@@ -383,20 +383,6 @@ pub fn dedupe(entries: &mut Vec<DocEntry>) -> Vec<String> {
     warnings
 }
 
-/// Canonical docs site base. Entries author cross-references as root-relative
-/// `/docs/…` links, but the consumers that actually RENDER an entry body — the LSP
-/// hover, the REPL `,doc`, the MCP `docs` tool — have no base URL to resolve them
-/// against (the website does not consume these entries). [`absolutize_doc_links`] turns
-/// them absolute so they are live links in those consumers instead of dead text.
-pub const SITE_BASE: &str = "https://sema-lang.com";
-
-/// Rewrite root-relative markdown links (`](/…)`) to absolute [`SITE_BASE`] URLs. The
-/// `](/` sequence is markdown link syntax — it does not occur in prose or Sema code — so
-/// a plain replace is safe and dependency-free.
-pub fn absolutize_doc_links(text: &str) -> String {
-    text.replace("](/", &format!("]({SITE_BASE}/"))
-}
-
 pub fn build_index(entries: Vec<DocEntry>) -> DocIndex {
     DocIndex {
         version: 1,
