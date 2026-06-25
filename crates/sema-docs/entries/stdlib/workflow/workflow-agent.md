@@ -11,10 +11,10 @@ current phase. `role` is an opts map (`{:name "scout" …}`) or a bare label; th
 role is `"agent"`. Returns the thunk's value, or propagates its error after journaling the
 result. Outside a `workflow/run` it is transparent — it just calls the thunk.
 
-This is the journaling wrapper; the [`agent`](/docs/stdlib/workflow/agent) macro is the
+This is the journaling wrapper; the `agent` macro is the
 ergonomic surface (it supplies the LLM-call thunk and handles `:schema`). Compose it
-inside [`pipeline`](/docs/stdlib/concurrency/pipeline) or
-[`parallel`](/docs/stdlib/concurrency/parallel) to make a fanned-out set of leaves show up
+inside `pipeline` or
+`parallel` to make a fanned-out set of leaves show up
 as sibling agent rows.
 
 ```sema

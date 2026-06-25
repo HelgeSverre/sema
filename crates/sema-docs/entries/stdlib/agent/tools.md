@@ -5,7 +5,7 @@ params: [{ name: agent, type: agent }]
 returns: "list"
 ---
 
-Return the agent's tools as a list of tool values (the [`deftool`](/docs/special-forms/deftool) values passed in `:tools`). An agent with no tools returns `()`.
+Return the agent's tools as a list of tool values (the `deftool` values passed in `:tools`). An agent with no tools returns `()`.
 
 ```sema
 (deftool get-weather "Get weather for a city"

@@ -16,4 +16,4 @@ Serialize a map to a TOML document string. The top-level value must be a map; ke
 ; => "[server]\nhost = \"localhost\"\nport = 8080\n"
 ```
 
-Inverse of [`toml/decode`](/docs/stdlib/toml/decode).
+Inverse of `toml/decode`.

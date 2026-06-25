@@ -9,7 +9,7 @@ flow). `(workflow/phase label)` closes the previously-open phase — emitting it
 `phase.ended` — then emits `phase.started` for `label`; the checkpoints and agents that
 follow attribute to this phase until the next `(workflow/phase …)` or the run end (which
 `workflow/run` closes automatically). Returns `nil`. Usually written via the
-[`phase`](/docs/stdlib/workflow/phase) macro.
+`phase` macro.
 
 ```sema
 (phase "Inventory")

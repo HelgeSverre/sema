@@ -20,4 +20,4 @@ Parse a TOML document string into a map. Table keys become keywords; nested tabl
 ; => {:ports (80 443)}
 ```
 
-Pairs with [`toml/encode`](/docs/stdlib/toml/encode) for a round-trip. Common for reading `Cargo.toml`-style config: `(toml/decode (file/read "config.toml"))`.
+Pairs with `toml/encode` for a round-trip. Common for reading `Cargo.toml`-style config: `(toml/decode (file/read "config.toml"))`.

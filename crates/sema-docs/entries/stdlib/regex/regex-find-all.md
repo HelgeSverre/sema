@@ -12,4 +12,4 @@ Find all non-overlapping matches of a pattern. Returns a list of the **full matc
 (regex/find-all #"\d+" "abc")             ; => ()  (no matches)
 ```
 
-Each result is the whole match even when the pattern has groups — `(\d)(\d)` over `"12 34"` yields `("12" "34")`, not the individual digits. For capture-group detail, use [`regex/match`](/docs/stdlib/regex/regex-match) per match.
+Each result is the whole match even when the pattern has groups — `(\d)(\d)` over `"12 34"` yields `("12" "34")`, not the individual digits. For capture-group detail, use `regex/match` per match.

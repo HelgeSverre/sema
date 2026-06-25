@@ -9,7 +9,7 @@ Macro: run a list of zero-arg `thunks` concurrently and await them **all** befor
 returning — a barrier. Results come back in **input order**; a thunk that throws yields
 `nil` in its slot rather than aborting the batch, so `(filter (fn (x) (not (nil? x)))
 results)` drops the failures. Concurrency is bounded (default 8, or pass `n`) by the same
-capacity-`n` semaphore that backs [`pipeline`](/docs/stdlib/concurrency/pipeline). This
+capacity-`n` semaphore that backs `pipeline`. This
 mirrors the `parallel` combinator in Claude Code's `workflow.js`.
 
 ```sema

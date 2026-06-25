@@ -7,7 +7,7 @@ returns: "string"
 
 Run an agent on a user message, driving the full tool-execution loop up to the agent's `:max-turns`, and return the model's final reply.
 
-The agent (built with [`defagent`](/docs/special-forms/defagent)) carries a system prompt, a model, a tool set, and a turn cap. `agent/run` sends the message, lets the model call the agent's tools, feeds each tool result back, and repeats until the model answers without a tool call or `:max-turns` is hit. Tool-result correlation is handled for you — you never hand-wire the round-trip.
+The agent (built with `defagent`) carries a system prompt, a model, a tool set, and a turn cap. `agent/run` sends the message, lets the model call the agent's tools, feeds each tool result back, and repeats until the model answers without a tool call or `:max-turns` is hit. Tool-result correlation is handled for you — you never hand-wire the round-trip.
 
 **Two shapes:**
 

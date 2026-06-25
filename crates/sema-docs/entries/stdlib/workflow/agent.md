@@ -7,17 +7,17 @@ syntax: "(agent prompt [opts])"
 
 Macro: a journaled LLM **agent** leaf (Claude Code `workflow.js` `agent(prompt, {schema})`
 semantics). Runs `prompt` through the configured provider and returns **typed data** when
-`opts` carries a `:schema` (validated via [`llm/extract`](/docs/stdlib/llm/extract)), or
-the completion text otherwise — so the next stage of a [`pipeline`](/docs/stdlib/concurrency/pipeline)
+`opts` carries a `:schema` (validated via `llm/extract`), or
+the completion text otherwise — so the next stage of a `pipeline`
 can consume the result directly without re-parsing. `opts` also carries `:name`, the agent
 role shown in the dashboard (default `"agent"`).
 
-The call is wrapped by [`workflow/agent`](/docs/stdlib/workflow/workflow-agent), which
+The call is wrapped by `workflow/agent`, which
 emits `agent.started`/`agent.result` plus a per-agent `budget` event, so each invocation
 becomes a correlated agent row under the current phase. Outside a `workflow/run` the
 journaling is transparent — the LLM call still runs.
 
-With `:tools [...]` (a list of [`deftool`](/docs/special-forms/deftool) values) the leaf
+With `:tools [...]` (a list of `deftool` values) the leaf
 runs the real multi-round tool loop and journals **each genuine tool call** as an
 `agent.tool_call` event (a tool twig in the drill-in). `:tools` returns the loop's final
 text; it does not compose with `:schema` yet. Per-agent budget for a multi-round tool

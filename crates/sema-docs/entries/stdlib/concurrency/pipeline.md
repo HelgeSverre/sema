@@ -11,7 +11,7 @@ item B is still in stage 1; wall-clock is the slowest single-item chain, not the
 per-stage maxima. Each stage fn receives the previous stage's result. A stage that throws
 drops **that** item to `nil` (and skips its remaining stages) without aborting the batch;
 results align to `items` (nils for dropped). Concurrency is bounded by the same semaphore
-as [`parallel`](/docs/stdlib/concurrency/parallel). This mirrors the `pipeline`
+as `parallel`. This mirrors the `pipeline`
 combinator in Claude Code's `workflow.js`.
 
 ```sema
