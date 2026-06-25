@@ -1844,9 +1844,8 @@ mod tests {
         );
         // Sanity: neither lowers to a Call whose head is the literal symbol.
         for src in ["(match 1 (1 :a))", "(match* 1 (1 :a))"] {
-            match lower_str(src) {
-                CoreExpr::Call { .. } => panic!("{src} wrongly lowered as a function call"),
-                _ => {}
+            if let CoreExpr::Call { .. } = lower_str(src) {
+                panic!("{src} wrongly lowered as a function call");
             }
         }
     }

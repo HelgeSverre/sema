@@ -5,7 +5,7 @@
 //! This replicates the cooperative WASM flow WITHOUT a browser, mirroring
 //! `SemaPlayground::debug_start` in `crates/sema-wasm/src/lib.rs`:
 //! read_many_with_spans → compile_program_with_spans → DebugState::new_headless
-//! + set_valid_breakpoint_lines + set_breakpoints → init_scheduler →
+//! set_valid_breakpoint_lines + set_breakpoints → init_scheduler →
 //! start_cooperative, then run_cooperative to simulate Continue.
 //!
 //! Why the native gate (`dap_async_breakpoint_test.rs`) is not enough: the
@@ -113,13 +113,12 @@ impl Coop {
     fn continue_to_finish(&mut self) {
         for _ in 0..10_000 {
             self.debug.instructions_remaining = 5_000_000;
-            match self
+            if let VmExecResult::Finished(_) = self
                 .vm
                 .run_cooperative(&self.interpreter.ctx, &mut self.debug)
                 .expect("run_cooperative does not error on resume")
             {
-                VmExecResult::Finished(_) => return,
-                _ => {}
+                return;
             }
         }
         panic!("program did not finish within the tick budget");

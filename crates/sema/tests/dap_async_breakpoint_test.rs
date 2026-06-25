@@ -15,7 +15,7 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -32,7 +32,7 @@ struct DebugRun {
     handle: std::thread::JoinHandle<Result<(), String>>,
 }
 
-fn start_debug_run(source: &str, path: &PathBuf, bp_line: u32) -> DebugRun {
+fn start_debug_run(source: &str, path: &Path, bp_line: u32) -> DebugRun {
     // VM → frontend events, frontend → VM commands.
     let (event_tx, event_rx) = mpsc::channel::<DebugEvent>();
     let (cmd_tx, cmd_rx) = mpsc::channel::<DebugCommand>();
@@ -43,7 +43,7 @@ fn start_debug_run(source: &str, path: &PathBuf, bp_line: u32) -> DebugRun {
     // full DAP-style setup there. execute_debug blocks on command_rx at each stop,
     // so it must run off the test thread regardless.
     let source = source.to_string();
-    let path = path.clone();
+    let path = path.to_path_buf();
     let handle = std::thread::spawn(move || -> Result<(), String> {
         let (vals, span_map) =
             sema_reader::read_many_with_spans(&source).map_err(|e| e.to_string())?;
@@ -118,12 +118,10 @@ fn sync_breakpoint_stops() {
     );
 
     run.cmd_tx.send(DebugCommand::Continue).unwrap();
-    let result = run
-        .handle
+    run.handle
         .join()
         .expect("run thread joins")
         .expect("program runs to completion");
-    let _ = result;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
