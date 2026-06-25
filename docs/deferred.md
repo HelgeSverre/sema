@@ -270,6 +270,12 @@ Resume from the plan's "Smallest proof-of-concept" section.
 
 ---
 
+## DOCS-SEARCH-1 — Domain-specialized tuning of the `docs_search` MCP tool
+
+**Found 2026-06-25, after shipping `docs_search`.** The shipped tool is a generic-ish lexical BM25 ranker (recall@5 ≈ 0.93 on a keyword-ish oracle) but degrades on **vague, intent-only queries** where the user's words don't overlap the docs' words (~6/18 such queries missed: save→`file/write`, "each item"→`map`, scramble→`hash/sha256`). **Desired:** exploit that this engine is single-purpose over a fixed corpus known at build time — move expensive work (including a build-time LLM) offline and bake it, keeping the query path offline/deterministic and scratch-gate-safe. Highest-leverage levers: build-time document expansion (doc2query intent phrases/synonyms baked per entry), a popularity prior (we already computed per-symbol call-frequency), and a hybrid BM25 + pure-Rust static-embedding ranker — all measured against a baked gold-query eval harness. **Deferred because** the current tool is good enough to ship and the tuning is a multi-phase investment best done when conceptual-query quality demonstrably matters. Full plan: `docs/plans/2026-06-25-docs-search-tuning.md`.
+
+---
+
 ## A note on the truly long-term language design items
 
 These are not deferred — they're design questions that need a deliberate decision before any code lands. They're tracked in `docs/wip.md` (the "Wave 6c" cluster), not here.
