@@ -624,12 +624,12 @@ async fn handle_request(
             }
         }
         "continue" => {
-            // Resume commands are only meaningful while the VM is parked in its
-            // command loop (vm_suspended). The running-mode poll silently drops
-            // any command that arrives mid-execution, so sending one then would
-            // clear vm_suspended without the VM ever acting on it (DAP-5). When
-            // the VM is already running we treat the request as advisory and
-            // simply acknowledge it without mutating state.
+            // Resume commands (Continue/Step) only act while the VM is parked in its
+            // command loop (vm_suspended) — there is no paused frame to resume
+            // otherwise. The running-mode poll drops exactly Continue/Step (it still
+            // honors Pause/Disconnect/queries), so sending one while running would clear
+            // vm_suspended without the VM acting on it. When already running we just
+            // acknowledge the request without mutating state.
             if state.vm_active && state.vm_suspended {
                 if let Some(ref tx) = state.dbg_cmd_tx {
                     let _ = tx.send(DebugCommand::Continue);
@@ -673,7 +673,10 @@ async fn handle_request(
             send_response(stdout, seq, msg.seq, "stepOut", None).await;
         }
         "pause" => {
-            if state.vm_active {
+            // Only meaningful while RUNNING — Pause asks the running loop to stop at the
+            // next instruction. When already suspended the VM has nothing to pause (the
+            // command would be a dead no-op the debug-stop loop drops), so skip it.
+            if state.vm_active && !state.vm_suspended {
                 if let Some(ref tx) = state.dbg_cmd_tx {
                     let _ = tx.send(DebugCommand::Pause);
                 }

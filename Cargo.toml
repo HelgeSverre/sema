@@ -15,6 +15,7 @@ members = [
     "crates/sema-docs",
     "crates/sema-mcp",
     "crates/sema-otel",
+    "crates/sema-workflow",
 ]
 exclude = ["pkg"]
 resolver = "2"
@@ -40,6 +41,7 @@ sema-notebook = { version = "=1.27.1", path = "crates/sema-notebook" }
 sema-docs = { version = "=1.27.1", path = "crates/sema-docs" }
 sema-mcp = { version = "=1.27.1", path = "crates/sema-mcp" }
 sema-otel = { version = "=1.27.1", path = "crates/sema-otel" }
+sema-workflow = { version = "=1.27.1", path = "crates/sema-workflow" }
 
 tower-lsp = "0.20"
 dashmap = "6"

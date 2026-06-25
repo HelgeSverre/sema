@@ -6,7 +6,7 @@ params: [{ name: path, type: string }]
 returns: "bool"
 ---
 
-Test if a file or directory exists.
+Test whether a path exists, whether it is a file, directory, or symlink. Use `file/is-file?` or `file/is-directory?` when you need to know *which*.
 
 ```sema
 (file/exists? "data.txt")   ; => #t or #f

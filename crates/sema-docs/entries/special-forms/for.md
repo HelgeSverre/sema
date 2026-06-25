@@ -1,32 +1,43 @@
 ---
 name: "for"
 module: "special-forms"
-syntax: "(for ((var expr) ...) body ...)"
+syntax: "(for-each fn seq) | (for-range (var start end [step]) body ...)"
 ---
 
-Iterate over one or more sequences for side effects. Each binding pairs a variable with an expression that evaluates to a sequence (list, vector, or range). The body is evaluated once for every combination of elements across all sequences, with the variables bound in a fresh lexical scope. `for` returns `nil`.
+Sema has **no `for` special form**. To iterate for side effects, use `for-each` (apply a function to each element of a sequence) or `for-range` (counted integer loop). Both return `nil`; neither leaks its loop variable into the enclosing scope. Writing a bare `(for ...)` raises `Unbound variable: for` — it is not a builtin.
 
-Multiple bindings produce nested iteration (cartesian product), with the rightmost binding changing fastest. This form is similar to `for-each` but uses inline `let`-style bindings rather than a separate lambda. It is commonly used for printing, mutating external state, or performing I/O over collections.
+Use `for-each` to walk a collection, and `for-range` when you need a numeric counter. To accumulate a result functionally instead of mutating, reach for `map`, `foldl`, or `filter` rather than a loop.
 
 ```sema
-(for ((x (range 5)))
-  (println x))
-;; prints 0 through 4
+(for-each println (list 1 2 3))
+;; prints 1, 2, 3 on separate lines, returns nil
 ```
 
 ```sema
-(for ((x (list 1 2 3))
-      (y (list 10 20)))
-  (println (list x y)))
-;; prints (1 10), (1 20), (2 10), (2 20), (3 10), (3 20)
+(for-range (i 0 5)
+  (println i))
+;; prints 0 1 2 3 4
 ```
+
+Accumulate into a mutable cell with an explicit `set!`:
 
 ```sema
 (let ((total 0))
-  (for ((n (list 10 20 30)))
-    (set! total (+ total n)))
+  (for-each (lambda (n) (set! total (+ total n)))
+            (list 10 20 30))
   total)
 ;; => 60
 ```
 
-**Note:** `for` is typically provided as a macro that expands into `map` and sequence combinators. The variables are locally scoped and are not visible outside the form.
+Nested iteration (cartesian product) is just nested `for-each`:
+
+```sema
+(for-each
+  (lambda (x)
+    (for-each (lambda (y) (println (list x y)))
+              (list 10 20)))
+  (list 1 2))
+;; prints (1 10) (1 20) (2 10) (2 20)
+```
+
+**See also:** `for-range` (counted loop), `for-each` (sequence iteration), `map`/`foldl` (build a value instead of looping for effect), `while` (condition-driven loop), `doseq` does not exist either.

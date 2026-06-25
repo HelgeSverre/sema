@@ -4,9 +4,10 @@ module: "strings"
 section: "Case Conversion"
 ---
 
-Convert to PascalCase.
+Convert any identifier to PascalCase (each word capitalized, no separators). Like `string/camel-case` but capitalizes the first word too; shares the `string/words` tokenizer with the other case converters.
 
 ```sema
 (string/pascal-case "hello_world")   ; => "HelloWorld"
 (string/pascal-case "hello world")   ; => "HelloWorld"
+(string/pascal-case "http-server")   ; => "HttpServer"
 ```

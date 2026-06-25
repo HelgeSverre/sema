@@ -1,0 +1,18 @@
+[package]
+name = "sema-workflow"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Sequential dynamic-workflow runtime + frozen JSONL run-directory journal for Sema"
+
+[dependencies]
+# Leaf crate by design: depends on sema-core + sema-otel + serde only — NEVER
+# sema-eval (CLAUDE.md no-circular-dep invariant). The builtins that invoke
+# Sema thunks live in sema-stdlib (which depends on this crate for the types).
+sema-core = { workspace = true }
+sema-otel = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+md5 = { workspace = true }

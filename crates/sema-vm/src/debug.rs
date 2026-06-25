@@ -264,18 +264,23 @@ impl DebugState {
 
         match self.step_mode {
             StepMode::Continue => false,
-            StepMode::StepInto => match &self.last_stop_line {
-                Some((_, last_line)) => line != *last_line,
-                None => true,
-            },
+            StepMode::StepInto => self.moved_since_last_stop(file, line),
             StepMode::StepOver => {
-                frame_depth <= self.step_frame_depth
-                    && match &self.last_stop_line {
-                        Some((_, last_line)) => line != *last_line,
-                        None => true,
-                    }
+                frame_depth <= self.step_frame_depth && self.moved_since_last_stop(file, line)
             }
             StepMode::StepOut => frame_depth < self.step_frame_depth,
+        }
+    }
+
+    /// Whether `(file, line)` differs from the last place a step stopped — the guard
+    /// that keeps StepInto/StepOver from re-stopping on the SAME source location. Both
+    /// the file AND line must match the prior stop to be considered "same"; comparing
+    /// only the line would wrongly treat the same line number in a DIFFERENT file as no
+    /// movement (silently stepping past the callee's first line).
+    fn moved_since_last_stop(&self, file: Option<&PathBuf>, line: u32) -> bool {
+        match &self.last_stop_line {
+            Some((last_file, last_line)) => line != *last_line || file != Some(last_file),
+            None => true,
         }
     }
 
@@ -299,16 +304,9 @@ impl DebugState {
         }
         let step_would_stop = match self.step_mode {
             StepMode::Continue => false,
-            StepMode::StepInto => match &self.last_stop_line {
-                Some((_, last_line)) => line != *last_line,
-                None => true,
-            },
+            StepMode::StepInto => self.moved_since_last_stop(file, line),
             StepMode::StepOver => {
-                frame_depth <= self.step_frame_depth
-                    && match &self.last_stop_line {
-                        Some((_, last_line)) => line != *last_line,
-                        None => true,
-                    }
+                frame_depth <= self.step_frame_depth && self.moved_since_last_stop(file, line)
             }
             StepMode::StepOut => frame_depth < self.step_frame_depth,
         };

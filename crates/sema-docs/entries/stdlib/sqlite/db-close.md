@@ -4,8 +4,8 @@ module: "sqlite"
 section: "Opening & Closing"
 ---
 
-Close a database connection and release the handle. Returns `nil`.
+Close a database connection and release its handle. Returns `nil`. After closing, the handle is invalid and further `db/*` calls on it will fail. For file databases this also flushes the WAL; for an in-memory database (`db/open-memory`) all data is discarded.
 
 ```sema
-(db/close "mydb")
+(db/close "mydb")   ; => nil
 ```

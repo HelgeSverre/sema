@@ -9,4 +9,8 @@ Left fold: combine elements of `seq` from the left starting with `init`, calling
 
 ```sema
 (fold + 0 '(1 2 3 4))   ; => 10
+(fold * 1 '(1 2 3 4))   ; => 24
 ```
+
+See `foldl` for the argument-order details and the contrast with `foldr` (right fold).
+

@@ -42,6 +42,8 @@ mod terminal;
 mod text;
 mod toml_ops;
 mod typed_array;
+#[cfg(not(target_arch = "wasm32"))]
+mod workflow;
 
 #[cfg(not(target_arch = "wasm32"))]
 use sema_core::Caps;
@@ -83,6 +85,8 @@ pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
     stream::register(env);
     pio::register(env);
     typed_array::register(env);
+    #[cfg(not(target_arch = "wasm32"))]
+    workflow::register(env);
     async_ops::register(env);
     #[cfg(not(target_arch = "wasm32"))]
     stream::register_io(env, sandbox);

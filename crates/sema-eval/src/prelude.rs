@@ -108,6 +108,71 @@ pub const PRELUDE: &str = r#"
 (defmacro with-session (id config . body)
   `(otel/with-session ,id ,config (lambda () ,@body)))
 
+;; defworkflow: define + run a sequential, journaled workflow.
+;; (defworkflow audit-auth "doc" {:phases [...] :budget {:tokens N :usd N}} (phase ...) ...)
+;; The meta map's `:budget` submap caps spend: `:tokens` (deterministic) and/or `:usd`
+;; (best-effort, pricing-table dependent). Exceeding a cap latches the run and refuses
+;; to launch further `agent` leaves; the run ends {:status :failed :reason "budget
+;; exceeded"}. Under a concurrent fan-out the cap still trips, but per-agent token
+;; accounting is best-effort (the LAST_USAGE thread-local is not swapped per task).
+;; The cap is PER-INVOCATION: a `--resume` run starts spend at 0 (memoized leaves
+;; replay for free and don't recharge), so it does not carry the prior run's spend.
+;; expands to a (workflow/run name doc meta thunk) call. `name` is a bare symbol that
+;; becomes a string; `meta` is the metadata map literal, spliced verbatim (like the
+;; with-span attrs map at :103); the body forms become the run thunk. workflow/run opens
+;; the journal sink under ./.sema/runs/<run-id>/, emits run.started/run.ended, writes
+;; result.json, and returns the {:status :success :value ...} / {:status :failed ...}
+;; envelope. Keeping defworkflow a macro leaves the VM untouched (deftool/defagent are
+;; special forms, but this matches the ->/when-let prelude family).
+(defmacro defworkflow (name doc meta . body)
+  `(workflow/run (symbol->string (quote ,name)) ,doc ,meta (lambda () ,@body)))
+
+;; phase: a journaled MARKER inside a workflow body (workflow.js semantics) — not a
+;; wrapper, not control flow. `(phase "Audit")` closes the previously-open phase and
+;; opens "Audit"; every `agent`/`checkpoint` that follows attributes to it until the
+;; next `(phase …)` or the run end (which closes the last open phase). Returns nil.
+(defmacro phase (label)
+  `(workflow/phase ,label))
+
+;; agent: a journaled LLM leaf (workflow.js `agent(prompt, {schema})`). Runs the prompt
+;; through the configured provider and returns TYPED DATA when `:schema` is supplied
+;; (validated via `llm/extract`), or the completion text otherwise. The optional opts
+;; map carries `:name` (the agent role label shown in the dashboard, default "agent")
+;; and `:schema`. The call is wrapped by `workflow/agent`, which emits
+;; agent.started/agent.result + a per-agent budget event.
+;;
+;;   (agent "List the auth-relevant files under src/." {:name "scout" :schema [:list :string]})
+;;   (agent "Summarize the changelog.")                  ; no schema -> returns text
+;; When `:tools [...]` is present the leaf runs the REAL tool loop (via llm/chat,
+;; which owns run_tool_loop) and journals each genuine tool call as an agent.tool_call
+;; event through the `:on-tool-call` callback. v1 returns the loop's final TEXT —
+;; `:schema` does NOT compose with `:tools` yet (deferred). Per-agent budget for a
+;; multi-round tool agent is best-effort (the Budget event reflects the final round's
+;; usage; LAST_USAGE is a single slot — same caveat as fan-out accounting).
+(defmacro agent (prompt . rest)
+  (let ((opts-form (if (null? rest) {} (car rest))))
+    `(let ((ag-opts# ,opts-form)
+           (ag-prompt# ,prompt))
+       ;; Inject the resolved prompt + a stable schema repr so workflow/agent can
+       ;; compute this leaf's resume content-key (these `:__`-prefixed keys are
+       ;; internal — read by the runtime, ignored by the dashboard).
+       (workflow/agent (assoc ag-opts#
+                         :__prompt (str ag-prompt#)
+                         :__schema-repr (str (get ag-opts# :schema)))
+         (fn ()
+           (let ((ag-schema# (get ag-opts# :schema))
+                 (ag-tools# (get ag-opts# :tools)))
+             (if (not (nil? ag-tools#))
+               ;; tools branch: real run_tool_loop, one agent.tool_call per call.
+               (llm/chat (prompt (user ag-prompt#))
+                 {:tools ag-tools#
+                  :on-tool-call (fn (ev#)
+                                  (when (= (:event ev#) "start")
+                                    (workflow/tool-call (:tool ev#) (:args ev#))))})
+               (if (nil? ag-schema#)
+                 (llm/complete ag-prompt#)
+                 (llm/extract ag-schema# ag-prompt#)))))))))
+
 ;; llm/embed is a SINGLE first-class native function (crates/sema-llm/src/
 ;; builtins.rs) that branches internally on `in_async_context()`: synchronous
 ;; inline outside a scheduler task, offloaded+overlapping inside one. Keeping it a
@@ -149,6 +214,56 @@ pub const PRELUDE: &str = r#"
                       (throw (:err result#))           ; re-raise so failures surface
                       (:ok result#))))))
             pool-items#))))
+
+;; __fanout-tagged: the single bounded-concurrency fan-out engine shared by `parallel`
+;; and `pipeline`. Applies worker `wf` to each item with at most `n` tasks running at
+;; once (semaphore = capacity-`n` channel pre-filled with `n` tokens), results in INPUT
+;; order. Each result is wrapped `{:ok v}` / `{:err e}` so the caller picks the failure
+;; policy — a throwing worker never aborts the batch. Internal (the `#`-suffixed
+;; bindings and the `__` name mark it as not-for-direct-use); `parallel`/`pipeline` are
+;; the public surface.
+(defmacro __fanout-tagged (wf items n)
+  `(let ((fo-f# ,wf)
+         (fo-items# ,items)
+         (fo-sem# (channel/new ,n)))
+     (for-range (i# 0 ,n) (channel/send fo-sem# #t))   ; n concurrency tokens
+     (async/all
+       (map (fn (item#)
+              (async/spawn
+                (fn ()
+                  (channel/recv fo-sem#)                 ; acquire (parks when full)
+                  (let ((r# (try {:ok (fo-f# item#)}
+                                 (catch e# {:err e#}))))
+                    (channel/send fo-sem# #t)            ; release on BOTH paths
+                    r#))))                                ; tagged; caller decides policy
+            fo-items#))))
+
+;; parallel: run a list of zero-arg thunks concurrently (bounded), awaiting them ALL
+;; before returning — a BARRIER. Results come back in input order; a thunk that throws
+;; yields `nil` in its slot (the batch never aborts), so `(filter (fn (x) (not (nil? x)))
+;; results)` drops failures. Mirrors the Claude Code `workflow.js` `parallel`. Optional
+;; trailing arg overrides the default concurrency cap (8).
+;;
+;;   (parallel (list (fn () (http/get a)) (fn () (http/get b))))   ; both at once
+(defmacro parallel (thunks . rest)
+  (let ((n (if (null? rest) 8 (car rest))))
+    `(map (fn (pr#) (if (contains? pr# :err) nil (:ok pr#)))
+          (__fanout-tagged (fn (th#) (th#)) ,thunks ,n))))
+
+;; pipeline: each item flows through ALL stage fns independently — NO barrier between
+;; stages (every item is its own task, so item A can be in stage 3 while item B is still
+;; in stage 1). A stage that throws drops that item to `nil` and skips its remaining
+;; stages. Results align to `items` (nils for dropped). Mirrors the `workflow.js`
+;; `pipeline`. Each stage fn takes the previous stage's result.
+;;
+;;   (pipeline files
+;;     (fn (f) (agent (str "Audit " f) {:schema finding}))
+;;     (fn (x) (agent (str "Verify " (:claim x)) {:schema verdict})))
+(defmacro pipeline (items . stages)
+  `(map (fn (pp#) (if (contains? pp# :err) nil (:ok pp#)))
+        (__fanout-tagged
+          (fn (it#) (foldl (fn (acc# st#) (st# acc#)) it# (list ,@stages)))
+          ,items 8)))
 
 ;; async/spawn-all: spawn a list of zero-arg thunks as concurrent tasks and await
 ;; them all, returning results in INPUT order. The ergonomic form of the very common

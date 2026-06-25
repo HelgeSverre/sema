@@ -1,12 +1,12 @@
 ---
 name: "lambda"
 module: "special-forms"
-syntax: "(lambda (params ...) body ...) | (lambda params body ...)"
+syntax: "(lambda (params ...) body ...)"
 ---
 
-Create an anonymous function. `lambda` takes a parameter list (or a single rest-parameter symbol) and one or more body expressions, returning a callable function value that closes over the environment where it was defined.
+Create an anonymous function. `lambda` takes a parameter list and one or more body expressions, returning a callable function value that closes over the environment where it was defined.
 
-The parameter list may be a list or vector of symbols. Rest arguments are supported with dot notation: `(lambda (x . rest) rest)`. Destructuring patterns in parameter positions are automatically desugared into a `let*` inside the function body. When given a single symbol instead of a list, that symbol captures all arguments as a list.
+The parameter list may be written as a list `(x y)` or a vector `[x y]` of symbols — both bind positional arguments. Rest arguments use dot notation: `(lambda (x . rest) rest)` binds `rest` to a list of the remaining arguments. A destructuring pattern in a parameter position (e.g. `([a b])` or `({:keys [k]})`) is desugared into a `let*` inside the body, so it pulls apart the single argument passed in that slot. A bare symbol in place of the whole parameter list (`(lambda args ...)`) is **not** supported and raises a type error — use `(lambda (. args) ...)`-style rest binding via `(x . rest)` instead.
 
 The alias `fn` is accepted as an alternative spelling (Clojure-style). Both are handled identically by the evaluator.
 
@@ -24,5 +24,9 @@ The alias `fn` is accepted as an alternative spelling (Clojure-style). Both are 
 ```
 
 ```sema
-((lambda [a b] (+ a b)) '(1 2))  ; => 3
+((lambda [a b] (+ a b)) 1 2)     ; => 3  ; [a b] is a 2-param list, not destructuring
+```
+
+```sema
+((lambda ([a b]) (+ a b)) '(1 2)) ; => 3  ; destructure ONE list argument
 ```

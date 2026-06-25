@@ -1471,3 +1471,196 @@ fn test_dap_async_program_runs_to_termination() {
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Drive the init → setBreakpoints → launch → configurationDone handshake and return
+/// once the program is parked at its first `stopped` event. Returns the live child +
+/// its stdin/reader so the test can step/inspect.
+fn session_stopped_at(
+    program_path: &std::path::Path,
+    breakpoint_lines: &[u32],
+) -> (
+    std::process::Child,
+    std::process::ChildStdin,
+    BufReader<std::process::ChildStdout>,
+) {
+    let mut child = Command::new(sema_binary())
+        .arg("dap")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn dap");
+    let mut stdin = child.stdin.take().unwrap();
+    let mut reader = BufReader::new(child.stdout.take().unwrap());
+
+    send_dap(&mut stdin, 1, "initialize", Some(serde_json::json!({})));
+    read_dap(&mut reader).unwrap(); // response
+    read_dap(&mut reader).unwrap(); // initialized event
+
+    let bps: Vec<_> = breakpoint_lines
+        .iter()
+        .map(|l| serde_json::json!({ "line": l }))
+        .collect();
+    send_dap(
+        &mut stdin,
+        2,
+        "setBreakpoints",
+        Some(serde_json::json!({
+        "source": { "path": program_path.to_string_lossy() }, "breakpoints": bps })),
+    );
+    read_dap(&mut reader).unwrap();
+
+    send_dap(
+        &mut stdin,
+        3,
+        "launch",
+        Some(serde_json::json!({ "program": program_path.to_string_lossy() })),
+    );
+    read_dap(&mut reader).unwrap();
+    send_dap(&mut stdin, 4, "configurationDone", None);
+    read_dap(&mut reader).unwrap();
+
+    assert!(
+        wait_for_event(&mut reader, "stopped", 50),
+        "should stop at the breakpoint"
+    );
+    (child, stdin, reader)
+}
+
+fn stack_frames(
+    stdin: &mut impl Write,
+    reader: &mut BufReader<impl Read>,
+    seq: u64,
+) -> Vec<serde_json::Value> {
+    send_dap(stdin, seq, "stackTrace", Some(serde_json::json!({})));
+    let resp = read_dap(reader).unwrap();
+    assert_eq!(resp["command"], "stackTrace");
+    resp["body"]["stackFrames"].as_array().unwrap().clone()
+}
+
+const STEP_PROG: &str = "(define (f n)\n  (+ n 1))\n(define a 1)\n(f 10)\n(define b 2)\n";
+
+#[test]
+fn test_dap_breakpoint_stops_on_requested_line() {
+    // Pin the 1-based stop LINE (not just "some frame"): a 1-vs-0-based regression in the
+    // stop location would otherwise pass.
+    let dir = unique_temp_dir("bp-line");
+    let p = dir.join("p.sema");
+    std::fs::write(&p, STEP_PROG).unwrap();
+    let (mut child, mut stdin, mut reader) = session_stopped_at(&p, &[4]);
+    let frames = stack_frames(&mut stdin, &mut reader, 5);
+    assert_eq!(frames[0]["line"], 4, "must stop on the requested line 4");
+    send_dap(&mut stdin, 9, "disconnect", None);
+    let _ = child.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_dap_next_steps_over_call_stays_in_frame() {
+    // Step-over at the `(f 10)` call (line 4) must land on line 5 in the SAME top-level
+    // frame — never inside f's body (line 2).
+    let dir = unique_temp_dir("step-over");
+    let p = dir.join("p.sema");
+    std::fs::write(&p, STEP_PROG).unwrap();
+    let (mut child, mut stdin, mut reader) = session_stopped_at(&p, &[4]);
+
+    send_dap(&mut stdin, 5, "next", None);
+    read_dap(&mut reader).unwrap(); // ack
+    let stopped =
+        wait_for_event_message(&mut reader, "stopped", 50).expect("step-over stops again");
+    assert_eq!(stopped["body"]["reason"], "step");
+
+    let frames = stack_frames(&mut stdin, &mut reader, 6);
+    assert_eq!(
+        frames.len(),
+        1,
+        "step-over must not descend into f: {frames:?}"
+    );
+    assert_eq!(
+        frames[0]["line"], 5,
+        "step-over lands on the next top-level line"
+    );
+
+    send_dap(&mut stdin, 9, "disconnect", None);
+    let _ = child.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_dap_step_in_descends_into_callee() {
+    // Step-in at the `(f 10)` call must descend into f (2 frames, top frame inside the
+    // callee body on line 2).
+    let dir = unique_temp_dir("step-in");
+    let p = dir.join("p.sema");
+    std::fs::write(&p, STEP_PROG).unwrap();
+    let (mut child, mut stdin, mut reader) = session_stopped_at(&p, &[4]);
+
+    send_dap(&mut stdin, 5, "stepIn", None);
+    read_dap(&mut reader).unwrap(); // ack
+    let stopped = wait_for_event_message(&mut reader, "stopped", 50).expect("step-in stops");
+    assert_eq!(stopped["body"]["reason"], "step");
+
+    let frames = stack_frames(&mut stdin, &mut reader, 6);
+    assert_eq!(frames.len(), 2, "step-in must descend into f: {frames:?}");
+    assert_eq!(frames[0]["line"], 2, "top frame is inside f's body");
+
+    send_dap(&mut stdin, 9, "disconnect", None);
+    let _ = child.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_dap_stop_on_entry_pauses_before_running() {
+    // stopOnEntry is wired but was untested — a regression would silently never pause at
+    // entry. Launch with no breakpoints + stopOnEntry:true → a stopped event must arrive
+    // before terminated; continue then runs to completion.
+    let dir = unique_temp_dir("entry");
+    let p = dir.join("p.sema");
+    std::fs::write(&p, "(+ 1 2)\n").unwrap();
+
+    let mut child = Command::new(sema_binary())
+        .arg("dap")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut reader = BufReader::new(child.stdout.take().unwrap());
+
+    send_dap(&mut stdin, 1, "initialize", Some(serde_json::json!({})));
+    read_dap(&mut reader).unwrap();
+    read_dap(&mut reader).unwrap();
+    send_dap(
+        &mut stdin,
+        2,
+        "launch",
+        Some(serde_json::json!({
+        "program": p.to_string_lossy(), "stopOnEntry": true })),
+    );
+    // The launch response must correlate to its request seq.
+    let resp = read_dap(&mut reader).unwrap();
+    assert_eq!(resp["command"], "launch");
+    assert_eq!(
+        resp["request_seq"], 2,
+        "response must correlate to the request seq"
+    );
+    send_dap(&mut stdin, 3, "configurationDone", None);
+    read_dap(&mut reader).unwrap();
+
+    assert!(
+        wait_for_event(&mut reader, "stopped", 50),
+        "stopOnEntry must pause at entry"
+    );
+
+    send_dap(&mut stdin, 4, "continue", Some(serde_json::json!({})));
+    read_dap(&mut reader).unwrap();
+    assert!(
+        wait_for_event(&mut reader, "terminated", 50),
+        "continue runs to completion"
+    );
+
+    send_dap(&mut stdin, 5, "disconnect", None);
+    let _ = child.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+}

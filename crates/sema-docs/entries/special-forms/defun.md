@@ -6,7 +6,7 @@ syntax: "(defun name (params ...) body ...)"
 
 Define a named function. `defun` is syntactic sugar that expands into `(define (name params ...) body ...)`. It takes a function name symbol, a parameter list, and one or more body expressions. The last body expression is evaluated in tail position.
 
-Parameter lists support rest arguments via dot notation: `(defun f (x . rest) rest)`. Destructuring patterns are also supported in parameter positions. `defun` always returns `nil`.
+Parameter lists support rest arguments via dot notation: `(defun f (x . rest) rest)`. Parameters must be plain symbols — to destructure an argument, bind it with `let` in the body (or use `fn`/`lambda`, which accept in-list patterns). `defun` always returns `nil`.
 
 The alias `defn` is accepted as an alternative spelling (Clojure-style). Both forms are handled identically by the evaluator.
 

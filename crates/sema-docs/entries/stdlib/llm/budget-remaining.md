@@ -9,5 +9,5 @@ Return the current budget status, or nil if no budget is set. When a cost budget
 
 ```sema
 (llm/set-budget 1.0)
-(llm/budget-remaining)   ; => {:limit 1.0 :spent 0.0 :remaining 1.0}
+(llm/budget-remaining)   ; => {:limit 1.0 :remaining 1.0 :spent 0.0}
 ```

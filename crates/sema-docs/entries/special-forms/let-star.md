@@ -28,3 +28,5 @@ Like `let`, `let*` supports destructuring with vector and map patterns. It is us
   result)
 ;; => 256
 ```
+
+**See also:** `let` (parallel — inits cannot see sibling bindings), `letrec` (for mutually recursive functions, where every name is visible to every init at once).

@@ -4,8 +4,9 @@ module: "file-io"
 section: "File Operations"
 ---
 
-Delete a file.
+Delete a file. Errors if the path does not exist, so guard with `file/exists?` when the file may be absent.
 
 ```sema
-(file/delete "tmp.txt")
+(when (file/exists? "tmp.txt")
+  (file/delete "tmp.txt"))
 ```

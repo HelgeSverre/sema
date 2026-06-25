@@ -15,7 +15,7 @@ Like all conditionals in Sema, only `nil` and `#f` are falsy; every other value 
 ```sema
 (unless (authenticated? user)
   (println "Access denied")
-  (return 403))
+  (throw {:status 403 :error "unauthorized"}))
 ```
 
 ```sema

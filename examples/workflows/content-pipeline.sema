@@ -1,0 +1,83 @@
+;; content-pipeline.sema — a dynamic-workflow showcase: Sema generating its OWN
+;; explainer content. Public-safe (the topics are Sema's own features), so it works
+;; for everyone with no private data.
+;;
+;; Shape (the canonical inventory -> generate-each -> verify -> publish pipeline),
+;; written in the workflow.js-style surface (marker phases, lexical def, typed agents):
+;;   Topics    — a checked-in list of Sema features (deterministic inventory)
+;;   Write     — one typed `agent` leaf per topic, fanned out N-at-a-time via `pipeline`
+;;   Verify    — keep only well-formed articles (per-item gate)
+;;   Publish   — write out/<slug>.md, return a {:status …} envelope
+;;
+;; Run it:
+;;   export OPENAI_API_KEY=...           # uses a cheap, fast gpt mini model
+;;   sema workflow run examples/workflows/content-pipeline.sema --run-dir .sema/runs
+;; then watch the run journal in the dashboard:  sema workflow view --run-dir .sema/runs
+;;
+;; The orchestrator (phases, fan-out, verify, publish) is deterministic; only the
+;; `agent` LLM leaf is probabilistic — exactly the workflow value proposition.
+
+;; A small, fast model: good enough for short explainers, cheap to run, not garbage.
+;; Self-configure OpenAI (reads OPENAI_API_KEY from the environment) and make it the
+;; default provider, so the workflow runs the same way regardless of the launcher.
+(llm/configure :openai {:api-key (env "OPENAI_API_KEY") :default-model "gpt-5.4-mini"})
+
+;; The inventory — Sema's own features. (Made-up showcase content about the language.)
+(define topics
+  (list "tail-call optimization"
+    "NaN-boxed values"
+    "the cooperative async scheduler"
+    "pattern matching with match"))
+
+;; The typed shape each `agent` leaf returns. With a :schema the agent returns this
+;; map directly (validated via llm/extract) — so the Verify/Publish phases read
+;; (:title a) / (:body a) without any JSON parsing.
+(def article {:title :string :body :string})
+
+(define (slug s)
+  ;; lowercase, and turn both spaces and slashes into dashes so the filename never
+  ;; implies a missing subdirectory (e.g. "async/pool-map …" -> "async-pool-map-…").
+  (string/replace (string/replace (string/lower s) "/" "-") " " "-"))
+
+(define (article-prompt topic)
+  (str "Write a concise 120-word explainer for a developer audience about the "
+    "Sema programming language feature: \""
+    topic
+    "\". Sema is a homoiconic "
+    "Lisp with a bytecode VM. Use the feature name as the title. Plain prose, no headings."))
+
+;; A well-formed article: a map with a non-trivial body. `pipeline` yields nil for a
+;; failed leaf, and (map? nil) is false, so this also drops failures.
+(define (good-article? a)
+  (and (map? a)
+    (string? (:body a))
+    (> (string-length (:body a)) 40)))
+
+(defworkflow content-pipeline
+  "Generate + verify short explainer articles about Sema's own features."
+  {:phases ["Topics" "Write" "Verify" "Publish"] :args {}}
+
+  (phase "Topics")
+  (def chosen topics)
+
+  (phase "Write")
+  ;; Fan out: one typed agent per topic, at most 4 model calls in flight, in order.
+  (def articles
+    (pipeline chosen
+      (fn (t) (agent (article-prompt t) {:name "writer" :schema article}))))
+
+  (phase "Verify")
+  ;; Per-item gate: keep only the well-formed articles (also drops failed nil slots).
+  (def verified (filter good-article? articles))
+
+  (phase "Publish")
+  (file/mkdir "out")
+  (for-each
+    (fn (a)
+      (file/write (str "out/" (slug (:title a)) ".md")
+        (str "# " (:title a) "\n\n" (:body a) "\n")))
+    verified)
+
+  {:status :success
+   :topics (count chosen)
+   :published (count verified)})

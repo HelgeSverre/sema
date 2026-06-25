@@ -63,6 +63,7 @@ mod cross_compile;
 mod import_tracer;
 mod pkg;
 mod repl;
+mod workflow_view;
 
 /// Read a source file with consistent, friendly error messages.
 ///
@@ -289,6 +290,11 @@ enum Commands {
         #[command(subcommand)]
         command: NotebookCommands,
     },
+    /// Dynamic workflows — run journaled workflows and view their runs
+    Workflow {
+        #[command(subcommand)]
+        command: WorkflowCommands,
+    },
     /// Evaluate code and return results (designed for machine consumption by editors/LSP)
     Eval {
         /// Read program from stdin instead of --expr
@@ -404,6 +410,63 @@ enum PkgCommands {
         /// Registry URL override
         #[arg(long)]
         registry: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum WorkflowCommands {
+    /// Run a workflow file (a `.sema` program that `defworkflow`s and runs it),
+    /// journaling a frozen run-directory and writing `result.json`.
+    Run {
+        /// Path to the `.sema` workflow file.
+        file: String,
+
+        /// JSON object bound to the global `*workflow-args*` for the run.
+        #[arg(long, default_value = "{}")]
+        args: String,
+
+        /// Base directory for run journals; the run lands in `<run-dir>/<run-id>/`.
+        /// Defaults to the project-local `.sema/runs`.
+        #[arg(long, default_value = ".sema/runs")]
+        run_dir: String,
+
+        /// Also start the live web viewer and keep it open after the run, so you
+        /// can watch the run progress and inspect it afterwards.
+        #[arg(long)]
+        view: bool,
+
+        /// Port for the `--view` viewer.
+        #[arg(short, long, default_value = "8899")]
+        port: u16,
+
+        /// Resume a prior run by its run-id: reuse `<run-dir>/<run-id>/`, skip leaves
+        /// already recorded in its `memo/` dir (no re-call of the model), and write a
+        /// fresh `events.resume-N.jsonl` segment. A workflow edit changes the code
+        /// version and re-runs everything.
+        #[arg(long)]
+        resume: Option<String>,
+    },
+    /// Backfill the cross-run SQLite index (`<run-dir>/index.db`) from every run's
+    /// journal — for offline/CI use; the viewer also syncs lazily on request.
+    Index {
+        /// Base directory holding `<run-id>/events.jsonl` run journals.
+        #[arg(long, default_value = ".sema/runs")]
+        run_dir: String,
+    },
+    /// Open the web viewer for a run directory's workflow journals
+    View {
+        /// Base directory holding `<run-id>/events.jsonl` run journals.
+        #[arg(long, default_value = ".sema/runs")]
+        run_dir: String,
+
+        /// Host to bind. Defaults to loopback; binding elsewhere exposes the run
+        /// directory to the network (the viewer has no auth).
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+
+        /// Port to listen on.
+        #[arg(short, long, default_value = "8899")]
+        port: u16,
     },
 }
 
@@ -660,6 +723,9 @@ fn main() {
             Commands::Notebook { command } => {
                 run_notebook_command(command);
             }
+            Commands::Workflow { command } => {
+                run_workflow_command(command, &sandbox);
+            }
             Commands::Eval {
                 stdin,
                 expr,
@@ -828,6 +894,202 @@ fn main() {
 
     // REPL mode
     repl::run(interpreter, cli.quiet, cli.sandbox.as_deref());
+}
+
+/// `sema workflow run <file>` — evaluate a workflow `.sema` file (which
+/// `defworkflow`s and runs it) with the run-directory + args seams wired, then
+/// exit non-zero if the run's `{:status …}` envelope reports failure.
+fn run_workflow_command(command: WorkflowCommands, sandbox: &sema_core::Sandbox) {
+    let (file, args, run_dir, view, view_port, resume) = match command {
+        WorkflowCommands::Run {
+            file,
+            args,
+            run_dir,
+            view,
+            port,
+            resume,
+        } => (file, args, run_dir, view, port, resume),
+        WorkflowCommands::View {
+            run_dir,
+            host,
+            port,
+        } => {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create tokio runtime")
+                .block_on(workflow_view::serve(PathBuf::from(run_dir), &host, port));
+            return;
+        }
+        WorkflowCommands::Index { run_dir } => {
+            let root = PathBuf::from(&run_dir);
+            match workflow_view::ingest::open(&root.join(sema_workflow::INDEX_DB)) {
+                Ok(conn) => {
+                    workflow_view::ingest::backfill_all(&conn, &root);
+                    match workflow_view::ingest::runs_summary(&conn) {
+                        Ok(rows) => println!(
+                            "indexed {} run(s) → {}",
+                            rows.len(),
+                            root.join(sema_workflow::INDEX_DB).display()
+                        ),
+                        Err(e) => eprintln!("warning: index summary: {e}"),
+                    }
+                }
+                Err(e) => {
+                    eprintln!("error: cannot open index db: {e}");
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
+    };
+
+    // The workflow runtime (sema-workflow) reads this seam to choose the run-dir
+    // base; the run lands in `<run-dir>/<run-id>/`.
+    std::env::set_var("SEMA_WORKFLOW_RUN_DIR", &run_dir);
+
+    // `--resume <run-id>`: reuse that run's dir + memo cache. Sanitize the operator-
+    // supplied id against path traversal (it joins into a filesystem path), require the
+    // prior run's events.jsonl to exist, then set the seams the runtime reads.
+    if let Some(run_id) = &resume {
+        if run_id.is_empty()
+            || run_id.contains('/')
+            || run_id.contains('\\')
+            || run_id.contains("..")
+        {
+            eprintln!("error: --resume run-id must be a bare directory name (no path separators)");
+            std::process::exit(1);
+        }
+        let prior = PathBuf::from(&run_dir).join(run_id).join("events.jsonl");
+        if !prior.exists() {
+            eprintln!("error: no prior run to resume at {}", prior.display());
+            std::process::exit(1);
+        }
+        std::env::set_var("SEMA_WORKFLOW_RUN_ID", run_id);
+        std::env::set_var("SEMA_WORKFLOW_RESUME", "1");
+    }
+    // Recorded verbatim on the run.started event (shown in the viewer's stream/meta).
+    std::env::set_var("SEMA_WORKFLOW_ARGS_JSON", &args);
+
+    // `--view`: start the live viewer on a background thread BEFORE the run, so the
+    // journal (written flush-per-event) is watchable in real time, and keep it up
+    // afterwards for inspection. A bind failure degrades to a warning (the run still
+    // proceeds). Best-effort open the browser.
+    if view {
+        let vd = run_dir.clone();
+        std::thread::spawn(move || {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create tokio runtime")
+                .block_on(async {
+                    if let Err(e) = workflow_view::serve_result(
+                        PathBuf::from(vd),
+                        "127.0.0.1",
+                        view_port,
+                        false,
+                    )
+                    .await
+                    {
+                        eprintln!("warning: --view could not start the viewer: {e}");
+                    }
+                });
+        });
+        let url = format!("http://127.0.0.1:{view_port}");
+        println!("Live viewer: {url}");
+        open_in_browser(&url);
+        // Give the listener a moment to bind before the run starts producing events.
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+
+    let interpreter = Interpreter::new_with_sandbox(sandbox);
+
+    // Auto-configure an LLM provider from the environment (mirrors the default run
+    // path), so a workflow whose leaves call `llm/*` works without self-configuring.
+    // Best-effort: a workflow with no LLM leaves needs no provider, so ignore errors.
+    let _ = interpreter.eval_str("(llm/auto-configure)");
+
+    // Bind the parsed --args JSON object to the global `*workflow-args*` so the
+    // workflow body can read its inputs.
+    let args_value = match serde_json::from_str::<serde_json::Value>(&args) {
+        Ok(json) => sema_core::json::json_to_value(&json),
+        Err(e) => {
+            eprintln!("error: --args is not valid JSON: {e}");
+            std::process::exit(1);
+        }
+    };
+    interpreter
+        .global_env
+        .set(sema_core::intern("*workflow-args*"), args_value);
+
+    let content = match read_source_file(&file) {
+        Ok(c) => c,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            std::process::exit(1);
+        }
+    };
+
+    // Code version: a deterministic hash of the source, folded into every resume
+    // content-key. Editing the workflow changes this ⇒ memos no longer match ⇒ a
+    // resumed run re-executes from scratch (correct invalidation). DefaultHasher uses
+    // fixed keys, so the value is stable across separate invocations of this binary.
+    {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        content.hash(&mut h);
+        std::env::set_var("SEMA_WORKFLOW_CODE_VERSION", format!("{:016x}", h.finish()));
+    }
+
+    // The file's last form is the `defworkflow` (which expands to `workflow/run`),
+    // so eval returns the `{:status …}` envelope; journaling is its side effect.
+    let exit_code = match interpreter.eval_str_compiled(&content) {
+        Ok(envelope) => {
+            drain_async_scheduler(&interpreter);
+            let failed = envelope
+                .as_map_rc()
+                .and_then(|m| m.get(&Value::keyword("status")).cloned())
+                .and_then(|s| s.as_keyword())
+                .is_some_and(|s| s == "failed");
+            if failed {
+                eprintln!("workflow failed: {}", pretty_print(&envelope, 80));
+                1
+            } else {
+                0
+            }
+        }
+        Err(e) => {
+            eprint!("Error running workflow {file}: ");
+            print_error(&e);
+            1
+        }
+    };
+
+    // With `--view`, keep the viewer up so the finished run can be inspected.
+    if view {
+        println!("\nRun complete — viewer live at http://127.0.0.1:{view_port}  (Ctrl-C to stop)");
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(3600));
+        }
+    }
+    std::process::exit(exit_code);
+}
+
+/// Best-effort: open `url` in the default browser via the platform opener. Silent
+/// no-op if the opener isn't present (e.g. headless) — the URL is always printed.
+fn open_in_browser(url: &str) {
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(target_os = "windows") {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    let _ = std::process::Command::new(opener)
+        .arg(url)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
 }
 
 /// Drain any pending async tasks scheduled by a top-level form.

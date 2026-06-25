@@ -28,7 +28,7 @@ Decoding errors:
 
 ```sema
 ;; Invalid JSON throws an error
-(json/decode "not json")    ; Error: json/decode: expected value at line 1 column 1
+(json/decode "not json")    ; Error: json/decode: parse error at line 1 column 2
 
 ;; Argument must be a string
 (json/decode 42)            ; Error: type error: expected string, got int

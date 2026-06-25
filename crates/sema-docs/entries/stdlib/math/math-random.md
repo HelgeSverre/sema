@@ -4,8 +4,10 @@ module: "math"
 section: "Random Numbers"
 ---
 
-Return a random float between 0.0 (inclusive) and 1.0 (exclusive).
+Return a random float in `[0.0, 1.0)` — 0.0 is possible, 1.0 never is. Not seedable, so draws are not reproducible. For a random integer, use [`math/random-int`](#math-random-int).
 
 ```sema
-(math/random)      ; => 0.7291... (varies)
+(math/random)              ; => 0.7291... (varies)
+(* (math/random) 10)       ; => a float in [0.0, 10.0)
+(< (math/random) 0.5)      ; => #t or #f — a fair coin flip
 ```

@@ -1,6 +1,31 @@
 # Workflow Dashboard + SQLite Projection — Scoping
 
-**Status:** scoping / not started · **Date:** 2026-06-23 · **Design direction LOCKED 2026-06-23.**
+> ## ⚑ FULL VIEWER SHIPPED 2026-06-24 (branch `feat/dynamic-workflows-spike1`)
+> The complete `variant-5b` three-pane dashboard is built and live-data-wired:
+> `sema workflow view --run-dir <dir> [--host --port]`, and `sema workflow run --view`
+> auto-starts it.
+> - **`crates/sema/src/workflow_view/index.html`** — a faithful PORT of `variant-5b` (vanilla JS,
+>   NOT Alpine — porting the locked prototype verbatim guarantees fidelity), wired to fetch real
+>   data: **left** phase ledger (done/total + glyphs), **center** detail pane (agent table
+>   agent·model·tok·tools·dur + per-agent **drill-in**: Prompt / Tool calls / Output digest),
+>   **right** the raw **event stream** (one row per journal event, seq cursor, click-to-jump to
+>   the agent/phase). Header rollup (phases·agents·tok·cost), meta strip + budget bar, footer
+>   keybar. Follow-live polling while the run is `running`. Honors §1.2 anti-dashboard-isms.
+> - **`crates/sema/src/workflow_view.rs`** — minimal loopback tokio HTTP/1.1 static server (NO axum
+>   dep), routes `/`, `/api/runs`, `/api/run/<id>/{events.jsonl,result.json,metadata.json,args.json}`;
+>   path-traversal rejected; unit-tested.
+> - **Rich event vocab now EMITTED by the runtime** (so a LIVE run populates every pane, not just a
+>   fixture): agent.started{agent_id,agent_name,model}, agent.result{...,status,model},
+>   agent.tool_call{agent_id,tool_name,args_json}, checkpoint{phase_seq,content_key}, budget
+>   {agent_id,phase_seq,input/output_tokens,cost_usd} (per-agent tokens+cost via `sema_llm`
+>   last-usage), run.started{args_json}. Live-verified on `content-pipeline`.
+> - **Gate:** Playwright E2E `crates/sema/tests/e2e-workflow-view` (6/6) asserts every pane against
+>   the rich `audit-auth` fixture (extracted from the prototype's own mock journal).
+> - **Option B** (§3–§5: the SQLite projection + idempotent replay-to-rows ingester + server-side
+>   `seq > N` cursor) remains the documented scale upgrade for many/large/long runs — the current
+>   viewer parses `events.jsonl` client-side and re-polls, fine for normal runs.
+
+**Status:** full variant-5b viewer + rich runtime events shipped 2026-06-24 · Option B (SQLite) = scale upgrade, pending · **Design LOCKED 2026-06-23.**
 **Depends on:** Spike 1 (sequential runtime + *frozen* JSONL journal) — see
 `docs/plans/2026-06-23-dynamic-workflows-derisk-spikes.md` §"Spike 1". This work
 **must not start until the ~8-event vocabulary is frozen** (scoping

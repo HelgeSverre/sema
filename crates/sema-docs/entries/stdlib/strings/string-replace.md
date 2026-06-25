@@ -4,9 +4,10 @@ module: "strings"
 section: "Core String Operations"
 ---
 
-Replace all occurrences of a substring.
+Replace every occurrence of a substring with a replacement. The match is a *literal* substring, not a regex — `.`, `*`, etc. match themselves. For pattern-based replacement use `regex/replace`; to replace only the first or last hit, use `string/replace-first` / `string/replace-last`.
 
 ```sema
 (string/replace "hello" "l" "r")   ; => "herro"
-(string/replace "aaa" "a" "b")    ; => "bbb"
+(string/replace "aaa" "a" "b")     ; => "bbb"
+(string/replace "a.b.c" "." "-")   ; => "a-b-c"   ; literal dot, not regex
 ```
