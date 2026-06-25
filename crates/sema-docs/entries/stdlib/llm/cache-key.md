@@ -5,8 +5,17 @@ params: [{ name: prompt, type: string }, { name: opts, type: map }]
 returns: "string"
 ---
 
-Compute the cache key string that would be used for a given prompt and options. The opts map accepts `:model`, `:temperature`, and `:system`. Useful for inspecting or pre-seeding the response cache.
+Compute the cache key (a hex digest) that the response cache would use for a given prompt and options. The opts map accepts `:model`, `:temperature`, and `:system`. Useful for inspecting or pre-seeding the cache.
+
+The key folds in the prompt **and** the options, so changing the model,
+temperature, or system prompt yields a different key — i.e. caching is per
+exact-request, and two calls only share a cached response when all of these match.
 
 ```sema
-(llm/cache-key "hello" {:model "gpt-4o-mini"})   ; => "a1b2c3..."
+(llm/cache-key "hello" {:model "gpt-4o-mini"})
+; => "e8b31aa2d7a4b92427d28a5d3ea1c3246450b203e2874cf28c35c1ca3c1f0ade"
+
+;; Different model -> different key -> separate cache entry.
+(llm/cache-key "hello" {:model "gpt-4o"})
+; => "...a different digest..."
 ```

@@ -4,9 +4,12 @@ module: "file-io"
 section: "Console I/O"
 ---
 
-Print a value without a trailing newline.
+Print a value in human-readable form (no quotes around strings) without a trailing newline.
+
+`display` is the "for humans" printer; `print` is the "for machines" printer (read-syntax — outer strings are quoted). `println` is `display` plus a newline. Use `display` to build up output on one line, then `(newline)` or `(io/flush)` when done.
 
 ```sema
-(display "no newline")
-(display 42)
+(display "hello")   ; outputs: hello   (no quotes)
+(print "hello")     ; outputs: "hello" (quoted, re-readable)
+(display 42)        ; outputs: 42
 ```

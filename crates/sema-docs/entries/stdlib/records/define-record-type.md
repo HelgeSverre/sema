@@ -14,6 +14,22 @@ Define a new record type, generating a constructor, predicate, and one accessor 
   (y point-y))
 ```
 
+Each of the three generated names is a normal binding you can call:
+
+```sema
+(define-record-type point
+  (make-point x y) point?
+  (x point-x) (y point-y))
+
+(define p (make-point 3 4))
+(point-x p)      ; => 3
+(point? p)       ; => #t
+(point? 42)      ; => #f
+(type p)         ; => :point
+```
+
+Records are **immutable** — there are no generated field setters, so "updating" means constructing a new record (`(make-point (point-x p) 10)`). Unlike a plain map, the predicate gives you a real nominal type: two records with the same fields but different type names are distinguishable, and `point?` only answers `#t` for points.
+
 General syntax:
 
 ```sema

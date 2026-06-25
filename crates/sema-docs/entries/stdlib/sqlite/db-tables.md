@@ -4,7 +4,7 @@ module: "sqlite"
 section: "Utility"
 ---
 
-List all user-created tables in the database (excludes internal SQLite tables). Returns a list of strings.
+List the names of all user-created tables in the database as a list of strings, sorted. Internal SQLite bookkeeping tables (those named `sqlite_*`) are excluded. Useful for introspection and migration checks.
 
 ```sema
 (db/tables "mydb")

@@ -23,10 +23,12 @@ The body expressions, if any, are evaluated on every iteration before the step u
 ```
 
 ```sema
-(do ((n 10 (/ n 2)))
-    ((= n 0) "done")
+(do ((n 5 (- n 1)))
+    ((= n 0) "liftoff")
   (println n))
-;; prints 10, 5, 2, 1
+;; prints 5, 4, 3, 2, 1 — then returns "liftoff"
 ```
+
+**Gotcha:** the step expression decides termination, so make sure the test will actually become true. `(/ n 2)` produces floats (`2.5`, `1.25`, …) that never equal `0`, so `((= n 0) ...)` would loop forever — decrement with `(- n 1)` or test with `(< n 1)`.
 
 **Note:** The VM compiles `do` to a dedicated `DoLoop` IR node with parallel step assignment.

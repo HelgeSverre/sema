@@ -4,8 +4,9 @@ module: "maps"
 section: "Maps"
 ---
 
-Create a map from key-value pairs.
+Create an ordered map from alternating key/value arguments — the function form of the `{...}` literal. Requires an even number of arguments. `hash-map` is an alias; for the unordered hash-table type use `hashmap/new`.
 
 ```sema
 (map/new :a 1 :b 2)   ; => {:a 1 :b 2}
+(map/new)             ; => {}
 ```

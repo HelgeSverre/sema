@@ -4,7 +4,7 @@ module: "strings"
 section: "Prefix & Suffix"
 ---
 
-Remove a prefix if present, otherwise return unchanged.
+Remove a prefix if present, otherwise return unchanged. The inverse of `string/ensure-start`.
 
 ```sema
 (string/chop-start "Hello World" "Hello ")  ; => "World"

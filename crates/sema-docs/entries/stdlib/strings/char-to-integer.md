@@ -5,9 +5,12 @@ section: "Characters"
 aliases: ["char->integer"]
 ---
 
-Convert a character to its Unicode code point.
+Convert a character to its Unicode code point. The inverse is `integer/to-char`.
 
 ```sema
 (char/to-integer #\A)   ; => 65
 (char/to-integer #\a)   ; => 97
+
+;; Code points are contiguous, so arithmetic on them works:
+(integer/to-char (+ (char/to-integer #\A) 32))  ; => #\a   (uppercase → lowercase)
 ```

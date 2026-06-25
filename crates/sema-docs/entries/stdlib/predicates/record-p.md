@@ -4,9 +4,18 @@ module: "predicates"
 section: "Type Predicates"
 ---
 
-Test if a value is a record instance.
+Test if a value is a record instance (any value built by a `define-record-type` constructor). Use `type-of` to recover the specific record type tag.
 
 ```sema
-(record? my-record)   ; => #t
-(record? 42)          ; => #f
+(define-record-type point
+  (make-point x y)
+  point?
+  (x point-x)
+  (y point-y))
+
+(record? (make-point 1 2))   ; => #t
+(record? 42)                 ; => #f
+(type-of (make-point 1 2))   ; => :point
 ```
+
+Each record type also generates its own predicate (`point?` above); `record?` is the generic test that holds for any record regardless of type.

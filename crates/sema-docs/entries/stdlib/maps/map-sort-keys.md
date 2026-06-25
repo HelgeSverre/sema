@@ -4,8 +4,9 @@ module: "maps"
 section: "HashMaps"
 ---
 
-Sort a map by its keys. Converts hashmaps to sorted maps.
+Return an ordered map with the same entries sorted by key. Mainly useful to turn an unordered `hashmap/new` table into a stable, printable map (or to canonicalize any map for display/comparison).
 
 ```sema
 (map/sort-keys (hashmap/new :c 3 :a 1 :b 2))   ; => {:a 1 :b 2 :c 3}
+(map/sort-keys {:c 3 :a 1 :b 2})               ; => {:a 1 :b 2 :c 3}
 ```

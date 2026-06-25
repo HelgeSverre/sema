@@ -30,4 +30,13 @@ syntax: "(let ((name value) ...) body ...)"
 ;; => 4950
 ```
 
+Because binding is parallel, an init refers to the *outer* value of a name, not the new one:
+
+```sema
+(define x 1)
+(let ((x 10) (y x)) y)   ; => 1  (y sees the outer x, not 10)
+```
+
 **Note:** Named `let` requires at least three arguments: the loop name, the bindings list, and one or more body expressions.
+
+**See also:** `let*` (sequential — later bindings see earlier ones), `letrec` (mutually recursive — all names visible to every init, for recursive functions).

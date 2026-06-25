@@ -18,13 +18,13 @@ You can mix function calls and bare symbols. The following example drills into n
 ;; equivalent to (:users (:data (json/decode (:body response))))
 ```
 
-Because the threaded value always appears first, `->` pairs naturally with collection utilities such as `map` and `filter`:
+Because the threaded value always appears first, `->` pairs naturally with functions that take the data as their primary argument, such as `assoc`, `string/trim`, and `string/upper`:
 
 ```sema
-(-> '(1 2 3 4)
-    (filter odd?)
-    (map (fn (x) (* x x))))
-;; => (1 9)
+(-> {} (assoc :name "Ada") (assoc :age 36) (get :name))
+;; => "Ada"
 ```
+
+**Choosing `->` vs `->>`:** thread-*first* fits maps/records/strings (data-first APIs); thread-*last* (`->>`) fits `map`/`filter`/`fold`, which take the collection as their *last* argument. Using `->` with `map` would insert the list where the function belongs and fail.
 
 **Note:** `->` is a prelude macro, so it is available automatically without an import.

@@ -5,9 +5,15 @@ section: "String Conversion"
 aliases: ["string->utf8"]
 ---
 
-Encode a string as a UTF-8 bytevector.
+Encode a string as a UTF-8 bytevector — the raw bytes you'd write to a file or send over the network. ASCII characters map to one byte each; non-ASCII characters take two or more.
 
 ```sema
 (string/to-utf8 "hi")     ; => #u8(104 105)
-(string/to-utf8 "Hello")  ; => #u8(72 101 108 108 111)
+(string/to-utf8 "é")      ; => #u8(195 169)  (one char, two bytes)
+```
+
+`utf8/to-string` is the inverse, so the round-trip is lossless:
+
+```sema
+(utf8/to-string (string/to-utf8 "héllo"))   ; => "héllo"
 ```

@@ -16,18 +16,22 @@ Unlike `cond`, which evaluates arbitrary test expressions, `case` uses equality 
 ```
 
 ```sema
+(define n 3)
 (case n
   ((1) "one")
   ((2 3) "two or three")
   (else "other"))
+;; => "two or three"
 ```
 
+The discriminant is matched against each datum *as a whole*. A clause datum that is itself a list does not match the elements of `expr` — only `expr` equal to that datum:
+
 ```sema
-(case '(:a 1)
+(case :b
   ((:a) "alpha")
   ((:b) "beta")
   (else "unknown"))
-;; => "alpha"
+;; => "beta"
 ```
 
 **Note:** The VM backend lowers `case` to a `let` binding for the key followed by nested `if` expressions, avoiding repeated evaluation of the discriminant.

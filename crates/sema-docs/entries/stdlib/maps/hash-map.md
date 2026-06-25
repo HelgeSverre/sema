@@ -5,7 +5,7 @@ section: "Construction"
 returns: map
 ---
 
-Construct a map from alternating key/value arguments. Requires an even number of arguments. Alias of `map/new`.
+Construct an ordered map from alternating key/value arguments. Requires an even number of arguments. Alias of `map/new`. (Despite the name, this builds the ordered `:map` type, not the unordered `:hashmap` from `hashmap/new`.)
 
 ```sema
 (hash-map :a 1 :b 2)   ; => {:a 1 :b 2}

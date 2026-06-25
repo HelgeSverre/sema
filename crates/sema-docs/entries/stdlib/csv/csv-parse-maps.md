@@ -19,3 +19,5 @@ Access fields by keyword:
 (define rows (csv/parse-maps "name,age\nAda,36\nBob,25"))
 (:name (first rows))   ; => "Ada"
 ```
+
+Every value is a **string** — there is no type inference, so coerce numbers yourself (e.g. `(string->number (:age row))`). Use `csv/parse` instead when you want raw positional rows and no header handling.

@@ -13,7 +13,7 @@ Use `when` when you need a side-effecting block that should run only under a cer
 ```
 
 ```sema
-(when (file-exists? path)
+(when (file/exists? path)
   (println "Loading config...")
   (load path)
   (println "Done."))
@@ -30,3 +30,5 @@ Use `when` when you need a side-effecting block that should run only under a cer
   (println "even")
   (* n 2))        ; => nil (n is odd, body skipped)
 ```
+
+**See also:** `unless` (the negated form), `if` (two-branch, returns the else value rather than `nil`), `cond` (multiple branches).

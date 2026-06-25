@@ -15,8 +15,10 @@ Evaluate the argument to obtain a form, then expand it one level if its head nam
 
 ```sema
 (macroexpand '(-> 5 (+ 3) (* 2)))
-; => (* (+ 5 3) 2)
+; => (-> (+ 5 3) (* 2))   ; only ONE level — the outer -> is peeled once
 ```
+
+To see the fully reduced form, expand repeatedly until the result stops changing (there is no built-in `macroexpand-all`).
 
 ```sema
 (macroexpand '(+ 1 2))

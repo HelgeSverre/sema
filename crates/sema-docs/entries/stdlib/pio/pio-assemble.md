@@ -9,10 +9,14 @@ returns: "map"
 Assemble a list of PIO instruction maps (interspersed with label symbols and the `:wrap-target` / `:wrap` keyword markers) into a binary program. Resolves labels, enforces the 32-instruction limit, and returns a map with `:instructions` (a little-endian bytevector of 16-bit words), `:length`, `:wrap-target`, and `:wrap`. The optional `config` map accepts `:side-set-bits` (0..5) and `:side-set-opt` (bool), which reserve delay/side-set bits accordingly.
 
 ```sema
+;; A blink loop: drive a pin high, then low, then jump back to 'loop
 (pio/assemble
   (list 'loop
         (pio/set :pins 1)
         (pio/set :pins 0)
         (pio/jmp :always 'loop))
   {:side-set-bits 0})
+; => {:instructions #u8(1 224 0 224 0 0) :length 3 :wrap 2 :wrap-target 0}
 ```
+
+The `'loop` symbol is a label, not an instruction — `pio/jmp` resolves it to a program-counter offset during assembly. The `:instructions` bytevector is exactly what you load onto the PIO; `:wrap-target` / `:wrap` describe the hardware auto-loop bounds (here, the whole 3-instruction program).

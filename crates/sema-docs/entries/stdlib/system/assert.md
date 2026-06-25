@@ -11,3 +11,5 @@ Raise an error if `condition` is falsy, otherwise return `#t`. An optional secon
 (assert (> 2 1))               ; => #t
 (assert (= 1 2) "must match")  ; raises "must match"
 ```
+
+For equality checks, prefer `assert=` — it reports both the expected and actual value in the failure message, which `assert` cannot.

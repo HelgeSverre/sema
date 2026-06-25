@@ -21,13 +21,15 @@ Because `name` is rebound after every step, you can reference the intermediate r
 ;; => "HEXXO!"
 ```
 
-`as->` combines cleanly with `->` and `->>`. Use it to switch argument placement mid-pipeline:
+The threaded value can land in any argument slot — even the second argument of `zip`, where `->`/`->>` could not place it:
 
 ```sema
-(-> '(1 2 3)
-    (map (fn (x) (* x 2)))
-    (as-> nums (zip '(a b c) nums)))
+(as-> '(1 2 3) xs
+  (map (fn (x) (* x 2)) xs)
+  (zip '(a b c) xs))
 ;; => ((a 2) (b 4) (c 6))
 ```
+
+**Gotcha:** `as->` is itself a binding form (`val name forms...`), so it cannot be used as a *step* inside a `->`/`->>` pipeline — the outer macro would inject the threaded value into the wrong slot. Make `as->` the outermost form and call `map`/`filter` directly inside its steps, as above.
 
 **Note:** `as->` is a prelude macro and is available automatically without an import.

@@ -4,7 +4,7 @@ module: "strings"
 section: "Prefix & Suffix"
 ---
 
-Ensure a string starts with a prefix (adds it if missing).
+Ensure a string starts with a prefix (adds it only if missing; idempotent). The inverse of `string/chop-start`.
 
 ```sema
 (string/ensure-start "/path" "/")   ; => "/path"

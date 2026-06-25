@@ -6,7 +6,7 @@ syntax: "(fn (params ...) body ...) | (fn params body ...)"
 
 Create an anonymous function. `fn` is an alias for `lambda` and behaves identically. It takes a parameter list (or a single rest-parameter symbol) and one or more body expressions, returning a callable function value that closes over its defining environment.
 
-Parameters may be supplied as a list or vector of symbols. Rest arguments use dot notation `(x . rest)`. Destructuring patterns in parameter positions are automatically desugared into an internal `let*`. A single symbol as the parameter spec captures all arguments as a list.
+Parameters may be supplied as a list or vector of symbols. Rest arguments use dot notation `(x . rest)`. A destructuring pattern may appear *in place of a parameter symbol* (e.g. `(fn ([a b]) ...)`); it is desugared into an internal `let*`. A single bare symbol as the entire parameter spec captures all arguments as a list.
 
 Use `fn` or `lambda` according to your preferred style; both are recognized as the same special form by the evaluator.
 
@@ -22,6 +22,9 @@ Use `fn` or `lambda` according to your preferred style; both are recognized as t
 ((fn (first . rest) rest) 10 20 30)  ; => (20 30)
 ```
 
+A parameter can be a destructuring pattern — a vector pattern over a list, or a map pattern over a map. The pattern stands in for one positional argument, so it must be wrapped in the parameter list:
+
 ```sema
-((fn {:keys [x y]} (+ x y)) {:x 1 :y 2})  ; => 3
+((fn ([a b]) (+ a b)) '(3 4))            ; => 7
+((fn ({:keys [x y]}) (+ x y)) {:x 1 :y 2})  ; => 3
 ```
