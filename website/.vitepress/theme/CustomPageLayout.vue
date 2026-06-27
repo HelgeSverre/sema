@@ -1,14 +1,31 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import HomeSearch from './HomeSearch.vue'
 
-defineProps({
+const props = defineProps({
   activeNav: { type: String, default: '' }
 })
 
 const menuOpen = ref(false)
 const toggleMenu = () => { menuOpen.value = !menuOpen.value }
 const closeMenu = () => { menuOpen.value = false }
+
+const docsItems = [
+  { label: 'Guide', link: '/docs/', key: 'guide' },
+  { label: 'Quickstart', link: '/docs/quickstart', key: 'quickstart' },
+  { label: 'Standard Library', link: '/docs/stdlib/', key: 'stdlib' },
+  { label: 'LLM & Agents', link: '/docs/llm/', key: 'llm' },
+  { label: 'Internals', link: '/docs/internals/architecture', key: 'internals' },
+]
+
+const featureItems = [
+  { label: 'Notebook', link: '/feature/notebook', key: 'notebook' },
+  { label: 'Agents & Tools', link: '/feature/agents', key: 'agents' },
+  { label: 'Cassettes', link: '/feature/cassettes', key: 'cassettes' },
+]
+
+const docsActive = computed(() => docsItems.some(i => i.key === props.activeNav))
+const featuresActive = computed(() => featureItems.some(i => i.key === props.activeNav))
 
 const copyText = (id, event) => {
   const el = document.getElementById(id);
@@ -51,11 +68,22 @@ const copyText = (id, event) => {
           <span></span><span></span><span></span>
         </button>
         <div class="nav-links" :class="{ open: menuOpen }" @click="closeMenu">
-          <a href="/docs/" :class="{ 'nav-active': activeNav === 'guide' }">Guide</a>
-          <a href="/docs/stdlib/" :class="{ 'nav-active': activeNav === 'stdlib' }">Stdlib</a>
-          <a href="/docs/llm/" :class="{ 'nav-active': activeNav === 'llm' }">LLM</a>
-          <a href="/feature/notebook" :class="{ 'nav-active': activeNav === 'notebook' }">Notebook</a>
-          <a href="/docs/internals/architecture" :class="{ 'nav-active': activeNav === 'internals' }">Internals</a>
+          <div class="nav-dropdown" :class="{ 'dd-active': docsActive }">
+            <a href="/docs/" class="dd-label">Docs <span class="dd-caret">&#x25be;</span></a>
+            <div class="dd-menu">
+              <a v-for="item in docsItems" :key="item.key" :href="item.link"
+                 :class="{ 'nav-active': activeNav === item.key }">{{ item.label }}</a>
+            </div>
+          </div>
+
+          <div class="nav-dropdown" :class="{ 'dd-active': featuresActive }">
+            <a href="/feature/notebook" class="dd-label">Features <span class="dd-caret">&#x25be;</span></a>
+            <div class="dd-menu">
+              <a v-for="item in featureItems" :key="item.key" :href="item.link"
+                 :class="{ 'nav-active': activeNav === item.key }">{{ item.label }}</a>
+            </div>
+          </div>
+
           <a href="https://sema.run" target="_blank" rel="noopener" class="vp-external-link-icon">
             Playground
           </a>
@@ -163,9 +191,59 @@ const copyText = (id, event) => {
 .custom-home .logo-svg { height: 20px; transition: transform 0.2s ease; color: var(--text); }
 .custom-home .logo-link:hover .logo-svg { transform: scale(1.04); }
 .custom-home .nav-links { display: flex; align-items: center; gap: 22px; margin-left: auto; font-size: 13.5px; }
-.custom-home .nav-links a { color: var(--muted); }
-.custom-home .nav-links a:hover { color: var(--text); text-decoration: none; }
+.custom-home .nav-links > a { color: var(--muted); }
+.custom-home .nav-links > a:hover { color: var(--text); text-decoration: none; }
 .custom-home .nav-links a.nav-active { color: var(--gold-bright); }
+
+/* dropdowns */
+.custom-home .nav-dropdown { position: relative; }
+.custom-home .dd-label {
+  color: var(--muted) !important;
+  cursor: default;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.custom-home .dd-caret { font-size: 9px; opacity: 0.6; }
+.custom-home .nav-dropdown:hover .dd-label,
+.custom-home .nav-dropdown.dd-active .dd-label { color: var(--text) !important; }
+.custom-home .nav-dropdown.dd-active .dd-label { color: var(--gold-bright) !important; }
+
+.custom-home .dd-menu {
+  position: absolute;
+  top: 100%;
+  left: -12px;
+  min-width: 180px;
+  padding: 6px 0;
+  background: rgba(24, 21, 18, 0.98);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px -12px rgba(0, 0, 0, .5);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px);
+  transition: opacity .15s var(--ease), transform .15s var(--ease), visibility .15s;
+  z-index: 60;
+}
+.custom-home .nav-dropdown:hover .dd-menu {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+.custom-home .dd-menu a {
+  display: block;
+  padding: 8px 16px;
+  color: var(--muted) !important;
+  font-size: 13px;
+  transition: color .12s, background .12s;
+}
+.custom-home .dd-menu a:hover {
+  color: var(--text) !important;
+  background: rgba(200, 168, 85, .06);
+  text-decoration: none;
+}
+.custom-home .dd-menu a.nav-active { color: var(--gold-bright) !important; }
 .custom-home .nav-gh { display: flex; align-items: center; color: var(--muted) !important; transition: color 0.18s var(--ease); }
 .custom-home .nav-gh:hover { color: var(--gold-bright) !important; text-decoration: none; }
 .custom-home .nav-gh .gh-svg { width: 18px; height: 18px; }
@@ -272,7 +350,32 @@ const copyText = (id, event) => {
     display: none;
   }
   .custom-home .nav-links.open { display: flex; }
-  .custom-home .nav-links a { padding: 11px 22px; }
+
+  /* dropdowns become flat inline sections on mobile */
+  .custom-home .nav-dropdown { position: static; }
+  .custom-home .dd-label {
+    padding: 11px 22px;
+    cursor: default;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--dim) !important;
+  }
+  .custom-home .dd-caret { display: none; }
+  .custom-home .dd-menu {
+    position: static;
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    background: none;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    min-width: 0;
+  }
+  .custom-home .dd-menu a { padding: 11px 22px 11px 34px; }
+
+  .custom-home .nav-links > a { padding: 11px 22px; }
   .custom-home .nav-gh { padding: 11px 22px; }
   .custom-home .install-row { flex-direction: column; align-items: stretch; gap: 7px; }
   .custom-home .install-row .badge { width: auto; text-align: left; }
