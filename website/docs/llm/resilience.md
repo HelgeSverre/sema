@@ -83,7 +83,7 @@ Wraps a thunk with token-bucket rate limiting. Takes a rate (requests per second
 Retries a thunk on failure with exponential backoff. Takes a thunk and an optional options map.
 
 ```sema
-;; Default: 3 attempts, 100ms base delay, 2.0 backoff
+;; Default: 3 retries, 100ms base delay, 2.0 backoff
 (retry (lambda () (http/get "https://example.com")))
 
 ;; Custom options

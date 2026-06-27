@@ -422,7 +422,7 @@
       Structured error handling with typed error maps.
       <code class="ic">catch</code> binds an error map with
       <code class="ic">:type</code>, <code class="ic">:message</code>, and
-      <code class="ic">:stack-trace</code> keys.
+      <code class="ic">:value</code> keys for user-thrown values.
     </p>
     <p>
       <code class="ic">defmacro</code> with quasiquote, unquote, and splicing.

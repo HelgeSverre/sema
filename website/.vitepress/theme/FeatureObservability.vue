@@ -85,7 +85,7 @@ import CustomPageLayout from './CustomPageLayout.vue'
             <div class="span-row span-child">
               <div class="span-indent"></div>
               <div class="span-content">
-                <span class="span-label">chat <span class="span-attr">claude-sonnet-4</span></span>
+                <span class="span-label">chat <span class="span-attr">claude-sonnet-4-6</span></span>
                 <div class="span-track">
                   <div class="span-bar span-bar-llm" style="width: 62%; margin-left: 0%">
                     <span class="span-time">524ms</span>
@@ -111,7 +111,7 @@ import CustomPageLayout from './CustomPageLayout.vue'
             <div class="span-row span-child">
               <div class="span-indent"></div>
               <div class="span-content">
-                <span class="span-label">chat <span class="span-attr">claude-sonnet-4</span></span>
+                <span class="span-label">chat <span class="span-attr">claude-sonnet-4-6</span></span>
                 <div class="span-track">
                   <div class="span-bar span-bar-llm" style="width: 20%; margin-left: 80%">
                     <span class="span-time">167ms</span>
@@ -150,7 +150,7 @@ import CustomPageLayout from './CustomPageLayout.vue'
           <div class="trace-attrs">
             <div class="attr-group">
               <div class="attr-label">gen_ai.request.model</div>
-              <div class="attr-value">claude-sonnet-4</div>
+              <div class="attr-value">claude-sonnet-4-6</div>
             </div>
             <div class="attr-group">
               <div class="attr-label">gen_ai.usage.input_tokens</div>

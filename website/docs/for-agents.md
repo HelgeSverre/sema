@@ -66,7 +66,7 @@ f"hi ${name}, ${(+ 1 2)}" ; f-string interpolation
 - **Two map types:** `{:k v}` literals are sorted `BTreeMap`s (deterministic, usable as keys);
   `(hashmap/new)` is a faster unordered hash map. Access with `(get m :k)` or `(:k m)`.
 - **Errors** are raised with `throw` and caught with `try`/`catch`; a caught error is a
-  structured map with `:type`, `:message`, and `:stack-trace`.
+  structured map with `:type`, `:message`, and `:value` for user-thrown values.
 - **Equality:** `=` is numeric (`(= 1 1.0)` → `#t`); `eq?`/`equal?` are structural.
 - **Definitions & functions:** `define` for bindings; `lambda` (alias `fn`) for anonymous
   functions; `defun`/`defn` are sugar for `(define name (lambda …))`. `let`/`let*`/`letrec`

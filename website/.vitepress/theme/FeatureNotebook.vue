@@ -388,11 +388,13 @@ import CustomPageLayout from './CustomPageLayout.vue'
               <div class="out">→ 200 OK</div>
               <div class="out">{</div>
               <div class="out">&nbsp;&nbsp;<span class="c-kwd">"id"</span>: <span class="c-str">"c4a3f2b1"</span>,</div>
-              <div class="out">&nbsp;&nbsp;<span class="c-kwd">"outputs"</span>: [{</div>
+              <div class="out">&nbsp;&nbsp;<span class="c-kwd">"output"</span>: {</div>
               <div class="out">&nbsp;&nbsp;&nbsp;&nbsp;<span class="c-kwd">"type"</span>: <span class="c-str">"value"</span>,</div>
               <div class="out">&nbsp;&nbsp;&nbsp;&nbsp;<span class="c-kwd">"display"</span>: <span class="c-str">"3"</span>,</div>
               <div class="out">&nbsp;&nbsp;&nbsp;&nbsp;<span class="c-kwd">"duration_ms"</span>: 12</div>
-              <div class="out">&nbsp;&nbsp;}]</div>
+              <div class="out">&nbsp;&nbsp;},</div>
+              <div class="out">&nbsp;&nbsp;<span class="c-kwd">"stdout"</span>: <span class="c-str">""</span>,</div>
+              <div class="out">&nbsp;&nbsp;<span class="c-kwd">"can_undo"</span>: <span class="c-kwd">true</span></div>
               <div class="out">}</div>
             </div>
           </div>

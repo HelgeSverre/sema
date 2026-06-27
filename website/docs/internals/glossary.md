@@ -90,7 +90,7 @@ This page defines the technical vocabulary used across Sema's documentation — 
 
 **Truthiness** — the rule determining which values count as true in conditionals. `and` returns the last truthy value or `#f`; `or` returns the first truthy value; `while`/`when` loop/run on truthy conditions. Only `#f` (and `nil`) are non-truthy.
 
-**Try / catch / throw** — error-handling forms: `try` evaluates a body, `catch` binds any raised error (a structured map with `:type`, `:message`, `:stack-trace`) for handling, and `throw` raises any value. `catch` catches ALL error types (including internal `:unbound`, `:arity`, `:permission-denied`), so re-throw what you don't handle; `throw`-ed values appear under `:user`.
+**Try / catch / throw** — error-handling forms: `try` evaluates a body, `catch` binds any raised error (a structured map with `:type` and `:message`; user-thrown values also include `:value`) for handling, and `throw` raises any value. `catch` catches ALL error types (including internal `:unbound`, `:arity`, `:permission-denied`), so re-throw what you don't handle.
 
 **Unquote / unquote-splicing** — inside a quasiquote, unquote (`,expr`) evaluates `expr` and inserts its value; unquote-splicing (`,@expr`) evaluates a list and splices each element into the template. E.g. `` `(a ,@(list 1 2 3) b) `` yields `(a 1 2 3 b)`.
 
@@ -192,7 +192,7 @@ This page defines the technical vocabulary used across Sema's documentation — 
 
 **Runtime-delegated form** — a special form the compiler cannot lower to pure bytecode (`eval`, `import`, `load`, `defmacro`, `define-record-type`, `delay`/`force`, `prompt`/`message`/`deftool`/`defagent`, `macroexpand`), so it is compiled as a call to a corresponding `__vm-*` global function registered by `sema-eval`.
 
-**SemaError** — Sema's `thiserror`-derived error enum (12 variants incl. Reader, Eval, Type, Arity, Unbound, Llm, UserException, plus `WithTrace`/`WithContext` wrappers), constructed via helper methods (`eval`, `type_error`, `arity`), never raw variants. Stack traces are attached lazily during propagation (`WithTrace`), so caught errors don't pay the trace cost. Surfaced to Sema code as a structured error map with `:type`, `:message`, `:stack-trace` (see *Try / catch / throw*).
+**SemaError** — Sema's `thiserror`-derived error enum (variants incl. Reader, Eval, Type, Arity, Unbound, Llm, UserException, plus `WithTrace`/`WithContext` wrappers), constructed via helper methods (`eval`, `type_error`, `arity`), never raw variants. Surfaced to Sema code as a structured error map with `:type` and `:message` (and `:value` for user exceptions); VM stack-trace parity in caught errors is deferred (see `VM-1` in `docs/deferred.md`).
 
 **Short lambda** — a terse anonymous-function literal `#(...)` whose body is scanned for positional placeholders `%`, `%1`, `%2`…; bare `%` rewrites to `%1`, producing `(lambda (%1 … %N) body)`. Clojure-style; read/desugared by the reader. E.g. `#(* % %)` squares its argument.
 

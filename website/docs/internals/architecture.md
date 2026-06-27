@@ -2,7 +2,7 @@
 
 Sema is a Lisp with first-class LLM primitives, implemented in Rust. All code runs on a single evaluator: a [bytecode VM](./bytecode-vm.md). The runtime is single-threaded (`Rc`, not `Arc`), with deterministic destruction via reference counting instead of a garbage collector.
 
-The entire implementation is ~116k lines of Rust across 15 crates, each with a clear responsibility and strict dependency ordering.
+The entire implementation is ~125k lines of Rust across 16 crates, each with a clear responsibility and strict dependency ordering.
 
 ## Crate Map
 

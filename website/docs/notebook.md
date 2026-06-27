@@ -218,7 +218,7 @@ The notebook server exposes a JSON HTTP API on the same port as the browser UI. 
 | POST   | `/api/eval-all`            | Evaluate all cells (optionally with edited source) |
 | GET    | `/api/env`                 | Inspect the current shared cell environment       |
 | POST   | `/api/reset`               | Reset the evaluation environment                   |
-| POST   | `/api/undo`                | Undo the last cell edit/delete                     |
+| POST   | `/api/undo`                | Undo the last cell evaluation                      |
 | POST   | `/api/save`                | Save the notebook to disk                          |
 
 Create cell request:
