@@ -1,0 +1,8 @@
+[project]
+name = "sema-ornith-experiment"
+version = "0.1.0"
+description = "SFT fine-tuning experiment: teaching Ornith to write Sema code"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.28.1",
+]

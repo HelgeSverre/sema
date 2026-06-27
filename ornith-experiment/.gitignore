@@ -1,0 +1,12 @@
+results/
+__pycache__/
+*.pyc
+.uv/
+build.log
+docs.json
+log.txt
+mydata.db
+out.txt
+output.bin
+output.txt
+tapes/
