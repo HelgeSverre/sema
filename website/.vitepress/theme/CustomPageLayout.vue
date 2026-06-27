@@ -243,7 +243,7 @@ const copyText = (id, event) => {
 .custom-home .dd-menu a:hover {
   color: var(--text) !important;
   background: rgba(200, 168, 85, .06);
-  text-decoration: none;
+  text-decoration: none !important;
 }
 .custom-home .dd-menu a.nav-active { color: var(--gold-bright) !important; }
 .custom-home .nav-gh { display: flex; align-items: center; color: var(--muted) !important; transition: color 0.18s var(--ease); }
