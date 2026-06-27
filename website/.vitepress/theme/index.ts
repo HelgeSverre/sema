@@ -6,6 +6,7 @@ import CustomPageLayout from './CustomPageLayout.vue'
 import FeatureNotebook from './FeatureNotebook.vue'
 import FeatureAgents from './FeatureAgents.vue'
 import FeatureCassettes from './FeatureCassettes.vue'
+import FeatureWhatIsSema from './FeatureWhatIsSema.vue'
 import HomeSearch from './HomeSearch.vue'
 import './custom.css'
 
@@ -19,6 +20,7 @@ export default {
     app.component('FeatureNotebook', FeatureNotebook)
     app.component('FeatureAgents', FeatureAgents)
     app.component('FeatureCassettes', FeatureCassettes)
+    app.component('FeatureWhatIsSema', FeatureWhatIsSema)
     app.component('HomeSearch', HomeSearch)
   },
 }
