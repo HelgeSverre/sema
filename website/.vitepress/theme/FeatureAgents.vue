@@ -76,15 +76,15 @@ import CustomPageLayout from './CustomPageLayout.vue'
           <div class="film-sprockets film-sprockets-bottom">
             <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
           </div>
+        </div>
 
-          <!-- Loop-back arrow: from frame 3 back to frame 2 -->
-          <div class="film-loopback">
-            <svg viewBox="0 0 200 40" fill="none" preserveAspectRatio="none" aria-hidden="true">
-              <path d="M150 0 Q150 30 100 30 Q50 30 50 0" stroke="#c8a855" stroke-width="1.2" stroke-dasharray="3 3" fill="none" stroke-linecap="round"/>
-              <path d="M48 4 L50 0 L53 4" stroke="#c8a855" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <span class="film-loopback-label">loop &mdash; tool result fed back to LLM</span>
-          </div>
+        <!-- Loop-back arrow: from frame 3 back to frame 2 -->
+        <div class="film-loopback">
+          <svg viewBox="0 0 200 40" fill="none" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M150 0 Q150 30 100 30 Q50 30 50 0" stroke="#c8a855" stroke-width="1.2" stroke-dasharray="3 3" fill="none" stroke-linecap="round"/>
+            <path d="M48 4 L50 0 L53 4" stroke="#c8a855" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="film-loopback-label">loop &mdash; tool result fed back to LLM</span>
         </div>
 
         <div class="loop-guards">
@@ -461,7 +461,6 @@ messages = [{<span class="c-str">"role"</span>: <span class="c-str">"user"</span
   background: var(--bg-raise);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 0 0 8px;
   overflow: hidden;
 }
 
@@ -558,7 +557,7 @@ messages = [{<span class="c-str">"role"</span>: <span class="c-str">"user"</span
 .film-loopback {
   position: relative;
   padding: 0 18%;
-  margin-top: 2px;
+  margin-top: 4px;
   height: 36px;
 }
 
@@ -576,7 +575,7 @@ messages = [{<span class="c-str">"role"</span>: <span class="c-str">"user"</span
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--dim);
-  background: var(--bg-raise);
+  background: var(--bg);
   padding: 0 8px;
   white-space: nowrap;
 }
