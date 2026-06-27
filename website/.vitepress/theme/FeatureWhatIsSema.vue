@@ -171,63 +171,51 @@ import CustomPageLayout from './CustomPageLayout.vue'
         <div class="toolchain-grid">
           <div class="tool-card">
             <div class="tool-name">REPL</div>
-            <div class="tool-desc">An interactive prompt with command history, auto-completion, and syntax highlighting. Start it with <code>sema</code> (no arguments), evaluate expressions line by line, and exit with <code>Ctrl+D</code> or <code>(exit)</code>.</div>
-            <a class="tool-link" href="/docs/quickstart">Quickstart &rarr;</a>
+            <div class="tool-desc">Interactive prompt with history, auto-completion, and syntax highlighting. <code>sema</code> with no args.</div>
           </div>
           <div class="tool-card">
             <div class="tool-name">Script runner</div>
-            <div class="tool-desc">Run <code>.sema</code> files directly: <code>sema hello.sema</code>. Evaluate an expression inline with <code>sema -e '(+ 1 2)'</code> (evaluates silently unless it prints), or <code>sema -p '(+ 1 2)'</code> (evaluates and always prints the result).</div>
-            <a class="tool-link" href="/docs/cli">CLI reference &rarr;</a>
+            <div class="tool-desc">Run <code>.sema</code> files directly. Inline eval with <code>--eval</code> and <code>--print</code> flags.</div>
           </div>
           <div class="tool-card">
             <div class="tool-name">Bytecode compiler</div>
-            <div class="tool-desc">Source is lowered to optimized bytecode for a stack-based VM — not a tree-walking interpreter. Inspect the compiled output with <code>sema compile file.sema</code> or disassemble with <code>sema disasm file.semac</code>.</div>
-            <a class="tool-link" href="/docs/internals/bytecode-vm">Bytecode VM docs &rarr;</a>
+            <div class="tool-desc">Lowering → optimization → resolution → compilation. Inspect with <code>sema compile</code> / <code>sema disasm</code>.</div>
           </div>
           <div class="tool-card">
             <div class="tool-name">Standalone executables</div>
-            <div class="tool-desc"><code>sema build agent.sema -o agent</code> traces your imports, bundles assets, and emits a self-contained binary — no Rust toolchain, runtime, or dependencies needed on the target machine. Ship a 12 MB binary to a server and it just runs.</div>
-            <a class="tool-link" href="/docs/internals/executable-format">Executable format &rarr;</a>
+            <div class="tool-desc"><code>sema build</code> traces imports, bundles assets, emits a self-contained binary. No toolchain needed at runtime.</div>
           </div>
           <div class="tool-card">
             <div class="tool-name">Formatter</div>
-            <div class="tool-desc">An opinionated code formatter for <code>.sema</code> files, like <code>gofmt</code> or <code>rustfmt</code>. Run <code>sema fmt file.sema</code> to format in place, or <code>sema fmt --check</code> in CI to enforce style.</div>
-            <a class="tool-link" href="/docs/formatter">Formatter docs &rarr;</a>
+            <div class="tool-desc"><code>sema fmt</code> — opinionated code formatter for <code>.sema</code> files.</div>
           </div>
           <div class="tool-card">
             <div class="tool-name">LSP server</div>
-            <div class="tool-desc">A Language Server Protocol implementation providing completions, hover, go-to-definition, references, rename, semantic tokens, folding ranges, and inlay hints. Run <code>sema lsp</code> — works with any LSP-compatible editor.</div>
-            <a class="tool-link" href="/docs/lsp">LSP docs &rarr;</a>
+            <div class="tool-desc">Completions, hover, go-to-definition, references, rename, semantic tokens, folding, inlay hints. <code>sema lsp</code>.</div>
           </div>
           <div class="tool-card">
             <div class="tool-name">DAP debugger</div>
-            <div class="tool-desc">A Debug Adapter Protocol server with breakpoints, step in/over/out, stack traces, and variable inspection. Communicates with the bytecode VM via debug hooks. Run <code>sema dap</code>.</div>
-            <a class="tool-link" href="/docs/dap">DAP docs &rarr;</a>
+            <div class="tool-desc">Breakpoints, step in/over/out, stack traces, variable inspection via VM debug hooks. <code>sema dap</code>.</div>
           </div>
           <div class="tool-card">
             <div class="tool-name">Notebook server</div>
-            <div class="tool-desc">A Jupyter-inspired interactive notebook: write code in cells, evaluate them individually or all at once, and see results inline — including LLM outputs with cost and timing. <code>sema notebook serve file.sema-nb</code> opens the browser UI at <code>localhost:8888</code>.</div>
-            <a class="tool-link" href="/feature/notebook">Notebook feature &rarr;</a>
+            <div class="tool-desc">Jupyter-inspired <code>.sema-nb</code> format, shared-env cells, REST API, browser UI. <code>sema notebook serve</code>.</div>
           </div>
           <div class="tool-card">
             <div class="tool-name">MCP server</div>
-            <div class="tool-desc">A Model Context Protocol server that exposes Sema evaluation, build, and notebook tools to AI agents. Lets coding assistants like Claude run Sema code, compile binaries, and manage notebooks through a standard protocol. <code>sema mcp</code>.</div>
-            <a class="tool-link" href="/docs/mcp">MCP docs &rarr;</a>
+            <div class="tool-desc">Model Context Protocol server exposing Sema eval/build/notebook tools to AI agents. <code>sema mcp</code>.</div>
           </div>
           <div class="tool-card">
             <div class="tool-name">Editor plugins</div>
-            <div class="tool-desc">Syntax highlighting, formatting, and LSP integration for VS Code, Vim/Neovim, Emacs, Helix, Zed, and IntelliJ — via the TextMate grammar and <code>sema lsp</code>.</div>
-            <a class="tool-link" href="/docs/editors">Editor setup &rarr;</a>
+            <div class="tool-desc">VS Code, Vim/Neovim, Emacs, Helix, Zed, IntelliJ — syntax highlighting, formatting, LSP integration.</div>
           </div>
           <div class="tool-card">
             <div class="tool-name">WASM playground</div>
-            <div class="tool-desc">Sema compiled to WebAssembly via <code>wasm-bindgen</code>, running entirely in the browser at <a href="https://sema.run">sema.run</a>. No server roundtrip for evaluation — the VM runs client-side.</div>
-            <a class="tool-link" href="https://sema.run">Open playground &rarr;</a>
+            <div class="tool-desc">Runs in the browser at <a href="https://sema.run">sema.run</a> via <code>wasm-bindgen</code>. No server roundtrip for evaluation.</div>
           </div>
           <div class="tool-card">
             <div class="tool-name">Embedding</div>
-            <div class="tool-desc">Embed Sema as a scripting language in any Rust application. The <code>sema-lang</code> crate provides a builder API: <code>Interpreter::new().eval_str("(+ 1 2)")</code> returns a <code>Value</code>. Register native functions, evaluate Sema from Rust, single-threaded sync interface.</div>
-            <a class="tool-link" href="/docs/embedding">Embedding guide &rarr;</a>
+            <div class="tool-desc">Rust crate <code>sema-lang</code> with a builder API. <code>Interpreter::new().eval_str("(+ 1 2)")</code>.</div>
           </div>
         </div>
       </div>
@@ -656,22 +644,6 @@ import CustomPageLayout from './CustomPageLayout.vue'
   background: var(--gold-fade);
   padding: 1px 5px;
   border-radius: 4px;
-}
-
-.tool-link {
-  display: inline-block;
-  margin-top: 10px;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--gold-bright);
-  text-decoration: none;
-  transition: color .12s;
-}
-
-.tool-link:hover {
-  color: var(--text);
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 
 /* ---------- feature rows ---------- */
