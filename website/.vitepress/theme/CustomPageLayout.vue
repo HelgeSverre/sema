@@ -24,6 +24,9 @@ const featureItems = [
   { label: 'Cassettes', link: '/feature/cassettes', key: 'cassettes' },
   { label: 'Observability', link: '/feature/observability', key: 'observability' },
   { label: 'Standalone Executables', link: '/feature/build', key: 'build' },
+  { label: 'Structured Extraction', link: '/feature/extraction', key: 'extraction' },
+  { label: 'Embedding', link: '/feature/embed', key: 'embed' },
+  { label: 'RAG', link: '/feature/rag', key: 'rag' },
 ]
 
 const docsActive = computed(() => docsItems.some(i => i.key === props.activeNav))
