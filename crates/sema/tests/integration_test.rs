@@ -14194,7 +14194,7 @@ fn test_sandbox_db_query_denied_under_fs_read() {
 fn test_cli_top_level_async_drains_scheduler() {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
         .args([
-            "--no-init",
+            "--no-llm",
             "-e",
             r#"(begin (async (println "side effect!")) :end)"#,
         ])
@@ -14230,7 +14230,7 @@ fn run_sema_with_stdin(program: &str, stdin_input: &[u8]) -> std::process::Outpu
     use std::io::Write;
     use std::process::Stdio;
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
-        .args(["--no-init", "-e", program])
+        .args(["--no-llm", "-e", program])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -14364,7 +14364,7 @@ fn run_repl_with_input(input: &str) -> std::process::Output {
     use std::io::Write;
     use std::process::Stdio;
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
-        .args(["--no-init", "-q"])
+        .args(["--no-llm", "-q"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -14434,7 +14434,7 @@ fn test_u1_file_not_found_wording() {
 
     // `run` (default file mode) is also covered.
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
-        .args(["--no-init", missing])
+        .args(["--no-llm", missing])
         .output()
         .expect("failed to spawn sema");
     let stderr = String::from_utf8_lossy(&output.stderr);

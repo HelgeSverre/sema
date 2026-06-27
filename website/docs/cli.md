@@ -17,8 +17,7 @@ sema [OPTIONS] [FILE] [-- SCRIPT_ARGS...]
 | `-l, --load <FILE>`  | Load file(s) before executing (repeatable)   |
 | `-q, --quiet`        | Suppress REPL banner                         |
 | `-i, --interactive`  | Enter REPL after running file or eval        |
-| `--no-init`          | Skip LLM auto-configuration                  |
-| `--no-llm`           | Disable LLM features (same as `--no-init`)   |
+| `--no-llm`           | Disable LLM features (skip provider auto-configuration) |
 | `--chat-model <NAME>`       | Set default chat model                |
 | `--chat-provider <NAME>`    | Set chat provider                     |
 | `--embedding-model <NAME>`  | Set embedding model                   |

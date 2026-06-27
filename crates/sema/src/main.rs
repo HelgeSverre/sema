@@ -120,12 +120,8 @@ struct Cli {
     #[arg(short, long)]
     interactive: bool,
 
-    /// Skip LLM auto-configuration
+    /// Disable LLM features (skip provider auto-configuration)
     #[arg(long)]
-    no_init: bool,
-
-    /// Disable LLM features (same as --no-init)
-    #[arg(long, conflicts_with = "no_init")]
     no_llm: bool,
 
     /// Sandbox mode: restrict dangerous operations.
@@ -772,8 +768,8 @@ fn main() {
         std::env::set_var("SEMA_EMBEDDING_PROVIDER", provider);
     }
 
-    // Auto-configure LLM unless --no-init or --no-llm
-    if !cli.no_init && !cli.no_llm {
+    // Auto-configure LLM unless --no-llm
+    if !cli.no_llm {
         if let Err(e) = interpreter.eval_str("(llm/auto-configure)") {
             if cli.chat_provider.is_some() || cli.chat_model.is_some() {
                 print_error(&e);
