@@ -175,7 +175,7 @@ import CustomPageLayout from './CustomPageLayout.vue'
           </div>
           <div class="tool-card">
             <div class="tool-name">Script runner</div>
-            <div class="tool-desc">Run <code>.sema</code> files or evaluate inline with <code>--eval</code>. Shebang-compatible for executable scripts.</div>
+            <div class="tool-desc">Run <code>.sema</code> files, inline expressions with <code>--eval</code>, and shebang scripts.</div>
           </div>
           <div class="tool-card">
             <div class="tool-name">Bytecode compiler</div>
