@@ -218,7 +218,7 @@ const copyText = (id, event) => {
   position: absolute;
   top: 100%;
   left: -12px;
-  min-width: 180px;
+  min-width: 200px;
   padding: 6px 0;
   background: rgba(24, 21, 18, 0.98);
   backdrop-filter: blur(14px);
