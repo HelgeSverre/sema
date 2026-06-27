@@ -411,24 +411,24 @@ import CustomPageLayout from './CustomPageLayout.vue'
 
         <div class="shortcuts-grid">
           <div class="shortcut">
-            <kbd>Shift</kbd>+<kbd>Enter</kbd>
-            <span>Run cell and advance to next</span>
+            <span class="shortcut-keys"><kbd>Shift</kbd><span class="shortcut-separator">+</span><kbd>Enter</kbd></span>
+            <span class="shortcut-label">Run cell and advance to next</span>
           </div>
           <div class="shortcut">
-            <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>Enter</kbd>
-            <span>Run cell and stay focused</span>
+            <span class="shortcut-keys"><kbd>Cmd</kbd><span class="shortcut-separator">/</span><kbd>Ctrl</kbd><span class="shortcut-separator">+</span><kbd>Enter</kbd></span>
+            <span class="shortcut-label">Run cell and stay focused</span>
           </div>
           <div class="shortcut">
-            <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>S</kbd>
-            <span>Save notebook</span>
+            <span class="shortcut-keys"><kbd>Cmd</kbd><span class="shortcut-separator">/</span><kbd>Ctrl</kbd><span class="shortcut-separator">+</span><kbd>S</kbd></span>
+            <span class="shortcut-label">Save notebook</span>
           </div>
           <div class="shortcut">
-            <kbd>Tab</kbd>
-            <span>Insert 2 spaces</span>
+            <span class="shortcut-keys"><kbd>Tab</kbd></span>
+            <span class="shortcut-label">Insert 2 spaces</span>
           </div>
           <div class="shortcut">
-            <kbd>Esc</kbd>
-            <span>Deselect cell</span>
+            <span class="shortcut-keys"><kbd>Esc</kbd></span>
+            <span class="shortcut-label">Deselect cell</span>
           </div>
         </div>
       </div>
@@ -827,13 +827,21 @@ import CustomPageLayout from './CustomPageLayout.vue'
 }
 
 .shortcut {
-  display: flex;
-  align-items: center;
-  gap: 14px;
+  display: grid;
+  align-content: start;
+  gap: 10px;
   padding: 16px 20px;
   background: var(--bg-raise);
   border: 1px solid var(--border);
   border-radius: 10px;
+}
+
+.shortcut-keys {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 28px;
 }
 
 .shortcut kbd {
@@ -849,8 +857,15 @@ import CustomPageLayout from './CustomPageLayout.vue'
   box-shadow: 0 2px 0 var(--border-lo);
 }
 
-.shortcut span {
+.shortcut-separator {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.shortcut-label {
   font-size: 13.5px;
+  line-height: 1.45;
   color: var(--muted);
 }
 
