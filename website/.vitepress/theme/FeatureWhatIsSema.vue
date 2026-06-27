@@ -211,7 +211,7 @@ import CustomPageLayout from './CustomPageLayout.vue'
           </div>
           <div class="tool-card">
             <div class="tool-name">WASM playground</div>
-            <div class="tool-desc">Runs in the browser at <a href="https://sema.run">sema.run</a> via <code>wasm-bindgen</code>. No server roundtrip for evaluation.</div>
+            <div class="tool-desc">Runs in the browser at <a href="https://sema.run">sema.run</a> and embeddable in web apps via <code>wasm-bindgen</code>.</div>
           </div>
           <div class="tool-card">
             <div class="tool-name">Embedding</div>
