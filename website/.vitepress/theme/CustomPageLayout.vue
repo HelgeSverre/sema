@@ -205,6 +205,7 @@ const copyText = (id, event) => {
   display: flex;
   align-items: center;
   gap: 4px;
+  text-decoration: none !important;
 }
 .custom-home .dd-caret { font-size: 9px; opacity: 0.5; margin-left: 2px; }
 .custom-home .nav-dropdown:hover .dd-label,
