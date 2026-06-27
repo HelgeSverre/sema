@@ -274,6 +274,15 @@ const copyText = (id, event) => {
 .custom-home h1 em { font-style: italic; color: var(--gold-bright); }
 .custom-home .lede { font-size: 18.5px; line-height: 1.65; color: var(--muted); max-width: 62ch; margin-bottom: 40px; }
 .custom-home .lede strong { color: var(--text); font-weight: 500; }
+.custom-home .lede code, .custom-home .req code, .custom-home .sub code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  color: var(--gold-bright);
+  background: var(--gold-fade);
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
 .custom-home .kicker { font-family: var(--font-mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--gold); margin-bottom: 14px; }
 .custom-home h2 { font-family: var(--font-display); font-weight: 400; font-size: clamp(30px, 3.6vw, 42px); line-height: 1.12; letter-spacing: 0; margin-bottom: 16px; max-width: 24ch; }
 .custom-home .sub { color: var(--muted); max-width: 62ch; font-size: 16.5px; }
