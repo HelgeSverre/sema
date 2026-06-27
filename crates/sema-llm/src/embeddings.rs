@@ -17,7 +17,7 @@ pub enum RerankDialect {
     Nomic,
     /// Together AI: `top_n` parameter, `results` array. Default model `BAAI/bge-reranker-v2-m3`.
     Together,
-    /// Fireworks AI: `top_n` parameter, `results` array. Default model `nvidia/nv-rerankqa-mistral4b-v3`.
+    /// Fireworks AI: `top_n` parameter, `data` array. Default model `fireworks/qwen3-reranker-8b`.
     Fireworks,
 }
 
@@ -28,7 +28,7 @@ impl RerankDialect {
             RerankDialect::Voyage => "rerank-2.5",
             RerankDialect::Nomic => "nomic-rerank-v1.5",
             RerankDialect::Together => "BAAI/bge-reranker-v2-m3",
-            RerankDialect::Fireworks => "nvidia/nv-rerankqa-mistral4b-v3",
+            RerankDialect::Fireworks => "fireworks/qwen3-reranker-8b",
         }
     }
     fn top_k_param(self) -> &'static str {
@@ -46,7 +46,7 @@ impl RerankDialect {
             RerankDialect::Voyage => "data",
             RerankDialect::Nomic => "results",
             RerankDialect::Together => "results",
-            RerankDialect::Fireworks => "results",
+            RerankDialect::Fireworks => "data",
         }
     }
 }

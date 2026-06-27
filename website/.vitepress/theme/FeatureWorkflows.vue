@@ -11,7 +11,7 @@ import CustomPageLayout from './CustomPageLayout.vue'
       <span class="hero-paren r" aria-hidden="true">)</span>
       <div class="wrap">
         <p class="eyebrow">Feature<span class="sep">·</span>Workflows<span class="sep">·</span>Journaled<span class="sep">·</span>Resumable</p>
-        <h1>The plan, the program, and the <em>trace</em> are one value.</h1>
+        <h1>Agent orchestration, <em>built in.</em></h1>
         <p class="lede">
           Define multi-phase agent workflows as ordinary Sema code.
           <strong>Phases</strong> are markers, <strong>agents</strong> are LLM

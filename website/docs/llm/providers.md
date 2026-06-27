@@ -227,21 +227,39 @@ Switch the active provider at runtime.
 
 All providers are auto-configured from environment variables. Use `(llm/configure :provider {...})` for manual setup.
 
-| Provider            | Type                  | Chat | Stream | Tools | Embeddings | Vision |
-| ------------------- | --------------------- | ---- | ------ | ----- | ---------- | ------ |
-| **Anthropic**       | Native                | ✅   | ✅     | ✅    | —          | ✅     |
-| **OpenAI**          | Native                | ✅   | ✅     | ✅    | ✅         | ✅     |
-| **Google Gemini**   | Native                | ✅   | ✅     | ✅    | —          | ✅     |
-| **Ollama**          | Native (local)        | ✅   | ✅     | ✅    | —          | ✅ ²   |
-| **Groq**            | OpenAI-compat         | ✅   | ✅     | ✅    | —          | —      |
-| **xAI**             | OpenAI-compat         | ✅   | ✅     | ✅    | —          | —      |
-| **Mistral**         | OpenAI-compat         | ✅   | ✅     | ✅    | —          | —      |
-| **Moonshot**        | OpenAI-compat         | ✅   | ✅     | ✅    | —          | —      |
-| **Jina**            | Embedding-only        | —    | —      | —     | ✅         | —      |
-| **Voyage**          | Embedding-only        | —    | —      | —     | ✅         | —      |
-| **Cohere**          | Embedding-only        | —    | —      | —     | ✅         | —      |
-| _Any OpenAI-compat_ | `llm/configure`       | ✅   | ✅     | ✅    | —          | ✅     |
-| _Custom Lisp_       | `llm/define-provider` | ✅   | ¹      | ✅    | —          | —      |
+### Chat / Inference Providers
+
+| Provider | Type | Chat | Stream | Tools | Vision | Env Var |
+|----------|------|:----:|:------:|:-----:|:------:|---------|
+| **Anthropic** | Native | ✅ | ✅ | ✅ | ✅ | `ANTHROPIC_API_KEY` |
+| **OpenAI** | Native | ✅ | ✅ | ✅ | ✅ | `OPENAI_API_KEY` |
+| **Google Gemini** | Native | ✅ | ✅ | ✅ | ✅ | `GOOGLE_API_KEY` |
+| **Ollama** | Native (local) | ✅ | ✅ | ✅ | ✅ ² | `OLLAMA_HOST` |
+| **Groq** | OpenAI-compat | ✅ | ✅ | ✅ | — | `GROQ_API_KEY` |
+| **xAI** | OpenAI-compat | ✅ | ✅ | ✅ | — | `XAI_API_KEY` |
+| **Mistral** | OpenAI-compat | ✅ | ✅ | ✅ | — | `MISTRAL_API_KEY` |
+| **Moonshot** | OpenAI-compat | ✅ | ✅ | ✅ | — | `MOONSHOT_API_KEY` |
+| **DeepSeek** | OpenAI-compat | ✅ | ✅ | ✅ | — | `DEEPSEEK_API_KEY` |
+| **OpenRouter** | OpenAI-compat (meta) | ✅ | ✅ | ✅ | — | `OPENROUTER_API_KEY` |
+| **Together AI** | OpenAI-compat | ✅ | ✅ | ✅ | — | `TOGETHER_API_KEY` |
+| **Fireworks AI** | OpenAI-compat | ✅ | ✅ | ✅ | — | `FIREWORKS_API_KEY` |
+| **Cerebras** | OpenAI-compat | ✅ | ✅ | ✅ | — | `CEREBRAS_API_KEY` |
+| **SambaNova** | OpenAI-compat | ✅ | ✅ | ✅ | — | `SAMBANOVA_API_KEY` |
+| **Perplexity** | OpenAI-compat | ✅ | ✅ | ✅ | — | `PERPLEXITY_API_KEY` |
+| _Any OpenAI-compat_ | `llm/configure` | ✅ | ✅ | ✅ | ✅ | — |
+| _Custom Lisp_ | `llm/define-provider` | ✅ | ¹ | ✅ | — | — |
+
+### Embedding / Reranking Providers
+
+| Provider | Embeddings | Reranking | Env Var |
+|----------|:----------:|:---------:|---------|
+| **OpenAI** | ✅ | — | `OPENAI_API_KEY` |
+| **Jina** | ✅ | ✅ | `JINA_API_KEY` |
+| **Voyage** | ✅ | ✅ | `VOYAGE_API_KEY` |
+| **Cohere** | ✅ | ✅ | `COHERE_API_KEY` |
+| **Nomic** | ✅ | ✅ | `NOMIC_API_KEY` |
+| **Together AI** | ✅ | ✅ | `TOGETHER_API_KEY` |
+| **Fireworks AI** | ✅ | ✅ | `FIREWORKS_API_KEY` |
 
 ¹ Streaming falls back to non-streaming (sends complete response as a single chunk).
 
@@ -249,38 +267,78 @@ All providers are auto-configured from environment variables. Use `(llm/configur
 
 ### Default Models
 
-When you don't pass `:default-model` to `llm/configure` (or pin `:model` on a call), each provider uses the following default. These are also what `llm/with-fallback` substitutes per provider when the body doesn't pin a model.
+When you don't pass `:default-model` to `llm/configure` (or pin `:model` on a call), each provider uses the following default.
 
-| Provider     | Default model                |
-| ------------ | ---------------------------- |
-| `:anthropic` | `claude-sonnet-4-6`          |
-| `:openai`    | `gpt-5.5`                    |
-| `:gemini`    | `gemini-3.5-flash`           |
-| `:ollama`    | `gemma4`                     |
-| `:groq`      | `llama-3.3-70b-versatile`    |
-| `:xai`       | `grok-4.3`                   |
-| `:mistral`   | `mistral-large-latest`       |
-| `:moonshot`  | `kimi-k2.6`                  |
+#### Chat providers
+
+| Provider | Default model |
+|----------|---------------|
+| `:anthropic` | `claude-sonnet-4-6` |
+| `:openai` | `gpt-5.5` |
+| `:gemini` | `gemini-3.5-flash` |
+| `:ollama` | `gemma4` |
+| `:groq` | `llama-3.3-70b-versatile` |
+| `:xai` | `grok-4.3` |
+| `:mistral` | `mistral-large-latest` |
+| `:moonshot` | `kimi-k2.6` |
+| `:deepseek` | `deepseek-v4-flash` |
+| `:openrouter` | `openai/gpt-5.2` |
+| `:together` | `meta-llama/Llama-4-Scout-17B-16E-Instruct` |
+| `:fireworks` | `accounts/fireworks/models/gpt-oss-120b` |
+| `:cerebras` | `gpt-oss-120b` |
+| `:sambanova` | `Meta-Llama-3.3-70B-Instruct` |
+| `:perplexity` | `sonar-pro` |
+
+#### Embedding providers
+
+| Provider | Default model |
+|----------|---------------|
+| `:openai` | `text-embedding-3-small` |
+| `:jina` | `jina-embeddings-v3` |
+| `:voyage` | `voyage-3` |
+| `:cohere` | `embed-english-v3.0` |
+| `:nomic` | `nomic-embed-text-v1.5` |
+| `:together` | `BAAI/bge-base-en-v1.5` |
+| `:fireworks` | `fireworks/qwen3-embedding-8b` |
+
+#### Reranking providers
+
+| Provider | Default model |
+|----------|---------------|
+| `:jina` | `jina-reranker-v2-base-multilingual` |
+| `:voyage` | `rerank-2.5` |
+| `:cohere` | `rerank-v3.5` |
+| `:nomic` | `nomic-rerank-v1.5` |
+| `:together` | `BAAI/bge-reranker-v2-m3` |
+| `:fireworks` | `fireworks/qwen3-reranker-8b` |
 
 Override any of these per provider with `:default-model`, globally via `SEMA_CHAT_MODEL`, or per call with `:model`.
 
 ## Environment Variables
 
-| Variable             | Description                                           |
-| -------------------- | ----------------------------------------------------- |
-| `ANTHROPIC_API_KEY`  | Anthropic API key                                     |
-| `OPENAI_API_KEY`     | OpenAI API key                                        |
-| `GROQ_API_KEY`       | Groq API key                                          |
-| `XAI_API_KEY`        | xAI/Grok API key                                      |
-| `MISTRAL_API_KEY`    | Mistral API key                                       |
-| `MOONSHOT_API_KEY`   | Moonshot API key                                      |
-| `GOOGLE_API_KEY`     | Google Gemini API key                                 |
-| `OLLAMA_HOST`        | Ollama server URL (default: `http://localhost:11434`) |
-| `JINA_API_KEY`       | Jina embeddings API key                               |
-| `VOYAGE_API_KEY`     | Voyage embeddings API key                             |
-| `COHERE_API_KEY`     | Cohere embeddings API key                             |
-| `SEMA_CHAT_MODEL`        | Default chat model name                               |
-| `SEMA_CHAT_PROVIDER`     | Preferred chat provider                               |
-| `SEMA_EMBEDDING_MODEL`   | Default embedding model name                          |
-| `SEMA_EMBEDDING_PROVIDER` | Preferred embedding provider                          |
+| Variable | Description |
+|----------|-------------|
+| `ANTHROPIC_API_KEY` | Anthropic API key |
+| `OPENAI_API_KEY` | OpenAI API key (also used for embeddings fallback) |
+| `GOOGLE_API_KEY` | Google Gemini API key |
+| `GROQ_API_KEY` | Groq API key |
+| `XAI_API_KEY` | xAI/Grok API key |
+| `MISTRAL_API_KEY` | Mistral API key |
+| `MOONSHOT_API_KEY` | Moonshot/Kimi API key |
+| `DEEPSEEK_API_KEY` | DeepSeek API key |
+| `OPENROUTER_API_KEY` | OpenRouter API key |
+| `TOGETHER_API_KEY` | Together AI API key (chat + embeddings + reranking) |
+| `FIREWORKS_API_KEY` | Fireworks AI API key (chat + embeddings + reranking) |
+| `CEREBRAS_API_KEY` | Cerebras API key |
+| `SAMBANOVA_API_KEY` | SambaNova API key |
+| `PERPLEXITY_API_KEY` | Perplexity API key |
+| `OLLAMA_HOST` | Ollama server URL (default: `http://localhost:11434`) |
+| `JINA_API_KEY` | Jina embeddings + reranking API key |
+| `VOYAGE_API_KEY` | Voyage embeddings + reranking API key |
+| `COHERE_API_KEY` | Cohere embeddings + reranking API key |
+| `NOMIC_API_KEY` | Nomic embeddings + reranking API key |
+| `SEMA_CHAT_MODEL` | Default chat model name |
+| `SEMA_CHAT_PROVIDER` | Preferred chat provider |
+| `SEMA_EMBEDDING_MODEL` | Default embedding model name |
+| `SEMA_EMBEDDING_PROVIDER` | Preferred embedding provider |
 

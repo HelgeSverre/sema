@@ -1838,7 +1838,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                     if !key.is_empty() {
                         let model = embed_model_for!(
                             "fireworks-embeddings",
-                            "nomic-ai/nomic-embed-text-v1.5"
+                            "fireworks/qwen3-embedding-8b"
                         );
                         let provider = OpenAiCompatEmbeddingProvider::new(
                             "fireworks-embeddings".to_string(),
@@ -3075,7 +3075,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                         .clone()
                         .ok_or_else(|| SemaError::Llm("missing :api-key".to_string()))?;
                     let model = get_opt_string(&opts, "default-model")
-                        .unwrap_or_else(|| "nomic-ai/nomic-embed-text-v1.5".to_string());
+                        .unwrap_or_else(|| "fireworks/qwen3-embedding-8b".to_string());
                     let provider = OpenAiCompatEmbeddingProvider::new(
                         "fireworks-embeddings".to_string(),
                         api_key,
