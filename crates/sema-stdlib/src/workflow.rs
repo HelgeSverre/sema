@@ -142,7 +142,7 @@ fn budget_failed_envelope() -> Value {
 pub fn register(env: &sema_core::Env) {
     // (workflow/run name doc meta thunk) — open a run scope, journal start/end, return
     // the {:status ...} envelope. `name`/`doc` are strings; `meta` is the workflow's
-    // metadata map ({:args ... :budget ... :perms ...}); `thunk` is the (lambda () ...)
+    // metadata map ({:args ... :budget ... :permissions ...}); `thunk` is the (lambda () ...)
     // wrapping the workflow body.
     crate::register_fn(env, "workflow/run", |args| {
         if args.len() != 4 {

@@ -151,6 +151,45 @@ fn spike1_checkpoint_read_in_audit_returns_inventory_value() {
     assert_eq!(result["findings"], serde_json::json!(3));
 }
 
+#[test]
+fn workflow_permissions_metadata_enforces_fs_write_denial() {
+    let tmp = tempdir();
+    let workflow_path = tmp.join("locked.sema");
+    let blocked_path = tmp.join("blocked.txt");
+    let blocked_literal =
+        serde_json::to_string(&blocked_path.display().to_string()).expect("path json string");
+    let src = format!(
+        r#"
+        (defworkflow locked "permission test" {{:permissions "no-fs-write"}}
+          (phase "P")
+          (file/write {blocked_literal} "should not be written")
+          {{:status :success}})
+        "#
+    );
+    std::fs::write(&workflow_path, src).expect("write workflow fixture");
+
+    let status = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("workflow")
+        .arg("run")
+        .arg(&workflow_path)
+        .arg("--run-dir")
+        .arg(tmp.join("runs"))
+        .env("SEMA_WORKFLOW_FIXED_TS", "0")
+        .env("SEMA_WORKFLOW_RUN_ID", "wf_perms_0001")
+        .status()
+        .expect("failed to spawn sema workflow run");
+
+    assert!(
+        !status.success(),
+        "workflow permissions should deny file/write"
+    );
+    assert!(
+        !blocked_path.exists(),
+        "denied workflow file/write should not create {}",
+        blocked_path.display()
+    );
+}
+
 /// Minimal, dependency-free temp dir (avoids pulling `tempfile` into dev-deps just
 /// for this test). Lands under the target dir so `cargo` cleanup sweeps it.
 fn tempdir() -> PathBuf {

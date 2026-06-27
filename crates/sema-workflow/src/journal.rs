@@ -19,7 +19,7 @@
 //!   events.resume-<n>.jsonl   # one per --resume continuation (each keeps the invariants)
 //!   memo/<content-key>.json   # per-leaf memoized values (the resume source of truth)
 //!   args.json                 # the --args input, verbatim
-//!   metadata.json             # workflow name, code version, budget, perms
+//!   metadata.json             # workflow name, code version, budget, permissions
 //!   result.json               # the final {:status …} envelope
 //! ```
 
@@ -144,7 +144,7 @@ impl Journal {
         self.write_sidecar("args.json", args)
     }
 
-    /// Write `metadata.json` (workflow name, code version, budget, perms). Caller
+    /// Write `metadata.json` (workflow name, code version, budget, permissions). Caller
     /// constructs the value; this crate does not own the metadata schema yet.
     pub fn write_metadata(&self, metadata: &serde_json::Value) -> io::Result<()> {
         self.write_sidecar("metadata.json", metadata)

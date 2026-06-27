@@ -436,8 +436,8 @@ pub fn install_scope(ctx: Rc<WorkflowCtx>) -> WorkflowGuard {
 /// fail the run cleanly (per-event writes below are best-effort).
 ///
 /// `meta` is the workflow's metadata map (`{:phases … :budget … :args …}`); it is
-/// recorded into `metadata.json`, and `:budget` is parsed into the run's spend caps
-/// (`:perms` is not yet enforced).
+/// recorded into `metadata.json`, and `:budget` is parsed into the run's spend caps.
+/// `:permissions` is enforced by the CLI before the interpreter is built.
 pub fn set_workflow_scope(name: &str, doc: &str, meta: &Value) -> io::Result<WorkflowGuard> {
     let run_id = resolve_run_id();
     let runs_root = resolve_runs_root();

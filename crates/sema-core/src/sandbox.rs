@@ -126,6 +126,11 @@ impl Sandbox {
         }
     }
 
+    pub fn with_more_denied(mut self, caps: Caps) -> Self {
+        self.denied = self.denied.union(caps);
+        self
+    }
+
     pub fn with_allowed_paths(mut self, paths: Vec<PathBuf>) -> Self {
         self.allowed_paths = Some(
             paths

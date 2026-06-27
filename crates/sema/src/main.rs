@@ -993,6 +993,30 @@ fn run_workflow_command(command: WorkflowCommands, sandbox: &sema_core::Sandbox)
     // Recorded verbatim on the run.started event (shown in the viewer's stream/meta).
     std::env::set_var("SEMA_WORKFLOW_ARGS_JSON", &args);
 
+    let content = match read_source_file(&file) {
+        Ok(c) => c,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            std::process::exit(1);
+        }
+    };
+
+    let mut effective_sandbox = sandbox.clone();
+    let permission_specs = match workflow_check::declared_permission_specs(&content) {
+        Ok(specs) => specs,
+        Err(e) => {
+            eprintln!("error: invalid workflow permissions: {e}");
+            std::process::exit(1);
+        }
+    };
+    for spec in permission_specs {
+        let declared = sema_core::Sandbox::parse_cli(&spec).unwrap_or_else(|e| {
+            eprintln!("error: invalid defworkflow :permissions {spec:?}: {e}");
+            std::process::exit(1);
+        });
+        effective_sandbox = effective_sandbox.with_more_denied(declared.denied);
+    }
+
     // `--view`: start the live viewer on a background thread BEFORE the run, so the
     // journal (written flush-per-event) is watchable in real time, and keep it up
     // afterwards for inspection. A bind failure degrades to a warning (the run still
@@ -1024,7 +1048,7 @@ fn run_workflow_command(command: WorkflowCommands, sandbox: &sema_core::Sandbox)
         std::thread::sleep(std::time::Duration::from_millis(250));
     }
 
-    let interpreter = Interpreter::new_with_sandbox(sandbox);
+    let interpreter = Interpreter::new_with_sandbox(&effective_sandbox);
 
     // Auto-configure an LLM provider from the environment (mirrors the default run
     // path), so a workflow whose leaves call `llm/*` works without self-configuring.
@@ -1043,14 +1067,6 @@ fn run_workflow_command(command: WorkflowCommands, sandbox: &sema_core::Sandbox)
     interpreter
         .global_env
         .set(sema_core::intern("*workflow-args*"), args_value);
-
-    let content = match read_source_file(&file) {
-        Ok(c) => c,
-        Err(msg) => {
-            eprintln!("error: {msg}");
-            std::process::exit(1);
-        }
-    };
 
     // Code version: a deterministic hash of the source, folded into every resume
     // content-key. Editing the workflow changes this ⇒ memos no longer match ⇒ a

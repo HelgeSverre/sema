@@ -19,6 +19,7 @@
 //! enclosing list form, which always has a span.
 
 use sema_core::{Span, SpanMap, Value};
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -98,6 +99,63 @@ pub fn check_source(src: &str) -> Vec<Diag> {
         find_workflows(form, &spans, &mut diags);
     }
     diags
+}
+
+/// Return workflow-declared permission specs from `defworkflow` metadata.
+///
+/// The canonical key is `:permissions`; legacy `:perms` remains an alias. Values use
+/// the same string syntax as the CLI `--sandbox` flag (`"strict"`,
+/// `"no-shell,no-network"`, etc.). Parse errors are left to the normal evaluator path;
+/// this helper only inspects forms the recover-parser could build.
+pub fn declared_permission_specs(src: &str) -> Result<Vec<String>, String> {
+    let (forms, _spans, _symbol_spans, _parse_errors) =
+        sema_reader::read_many_with_spans_recover(src);
+
+    let mut specs = Vec::new();
+    for form in &forms {
+        collect_declared_permission_specs(form, &mut specs)?;
+    }
+    Ok(specs)
+}
+
+fn collect_declared_permission_specs(form: &Value, out: &mut Vec<String>) -> Result<(), String> {
+    if head_symbol(form)
+        .map(|(head, _)| head == "quote" || head == "quasiquote")
+        .unwrap_or(false)
+    {
+        return Ok(());
+    }
+    if let Some(items) = list_head(form, "defworkflow") {
+        if let Some(meta) = items.get(3).and_then(|v| v.as_map_ref()) {
+            if let Some(spec) = permission_spec_from_meta(meta)? {
+                out.push(spec);
+            }
+        }
+        return Ok(());
+    }
+    if let Some(seq) = form.as_seq() {
+        for sub in seq {
+            collect_declared_permission_specs(sub, out)?;
+        }
+    }
+    Ok(())
+}
+
+fn permission_spec_from_meta(meta: &BTreeMap<Value, Value>) -> Result<Option<String>, String> {
+    if let Some(value) = meta.get(&Value::keyword("permissions")) {
+        return permission_spec_string(":permissions", value).map(Some);
+    }
+    if let Some(value) = meta.get(&Value::keyword("perms")) {
+        return permission_spec_string(":perms", value).map(Some);
+    }
+    Ok(None)
+}
+
+fn permission_spec_string(key: &str, value: &Value) -> Result<String, String> {
+    value
+        .as_str()
+        .map(String::from)
+        .ok_or_else(|| format!("defworkflow {key} must be a sandbox string"))
 }
 
 /// Walk the top-level forms looking for `(defworkflow …)` (which may be nested inside a
@@ -550,6 +608,54 @@ mod tests {
         assert!(c.contains(&"E-WF-NAME"), "got {c:?}");
         assert!(c.contains(&"W-WF-DOC"), "got {c:?}");
         assert!(c.contains(&"E-WF-META"), "got {c:?}");
+    }
+
+    #[test]
+    fn declared_permission_specs_reads_permissions_key() {
+        let specs = declared_permission_specs(
+            r#"(defworkflow d "d" {:permissions "no-fs-write"} {:status :ok})"#,
+        )
+        .unwrap();
+        assert_eq!(specs, vec!["no-fs-write"]);
+    }
+
+    #[test]
+    fn declared_permission_specs_keeps_perms_alias() {
+        let specs =
+            declared_permission_specs(r#"(defworkflow d "d" {:perms "no-network"} {:status :ok})"#)
+                .unwrap();
+        assert_eq!(specs, vec!["no-network"]);
+    }
+
+    #[test]
+    fn declared_permission_specs_prefers_permissions_over_perms() {
+        let specs = declared_permission_specs(
+            r#"(defworkflow d "d" {:perms "no-network" :permissions "no-fs-write"} {:status :ok})"#,
+        )
+        .unwrap();
+        assert_eq!(specs, vec!["no-fs-write"]);
+    }
+
+    #[test]
+    fn declared_permission_specs_rejects_non_string_permissions() {
+        let err = declared_permission_specs(
+            r#"(defworkflow d "d" {:permissions [:no-fs-write]} {:status :ok})"#,
+        )
+        .expect_err("permissions must be a string");
+        assert!(err.contains(":permissions"));
+    }
+
+    #[test]
+    fn declared_permission_specs_ignores_quoted_workflows() {
+        let specs = declared_permission_specs(
+            r#"
+            '(defworkflow quoted "d" {:permissions "all"} {:status :ok})
+            `(defworkflow templated "d" {:permissions "all"} {:status :ok})
+            (defworkflow actual "d" {:permissions "no-fs-write"} {:status :ok})
+            "#,
+        )
+        .unwrap();
+        assert_eq!(specs, vec!["no-fs-write"]);
     }
 
     #[test]
