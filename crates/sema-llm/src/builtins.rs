@@ -1677,8 +1677,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             // Try Perplexity
             if let Ok(key) = std::env::var("PERPLEXITY_API_KEY") {
                 if !key.is_empty() {
-                    let model =
-                        model_for!("perplexity").unwrap_or_else(|| "sonar-pro".to_string());
+                    let model = model_for!("perplexity").unwrap_or_else(|| "sonar-pro".to_string());
                     let provider = OpenAiProvider::named(
                         "perplexity".to_string(),
                         key,
@@ -1814,7 +1813,8 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             if embedding_provider.is_none() {
                 if let Ok(key) = std::env::var("TOGETHER_API_KEY") {
                     if !key.is_empty() {
-                        let model = embed_model_for!("together-embeddings", "BAAI/bge-base-en-v1.5");
+                        let model =
+                            embed_model_for!("together-embeddings", "BAAI/bge-base-en-v1.5");
                         let provider = OpenAiCompatEmbeddingProvider::new(
                             "together-embeddings".to_string(),
                             key,
@@ -5078,8 +5078,7 @@ fn format_schema(val: &Value) -> String {
                 }
             } else if v.as_keyword().is_some() {
                 // Bare keyword like :string — sent as a type hint
-                v.as_keyword()
-                    .unwrap_or_else(|| "any".to_string())
+                v.as_keyword().unwrap_or_else(|| "any".to_string())
             } else {
                 "any".to_string()
             };
@@ -5139,11 +5138,11 @@ fn validate_extraction(result: &Value, schema: &Value) -> Result<(), String> {
                         let ok = match type_name.as_str() {
                             "string" => val.as_str().is_some(),
                             "number" => val.as_float().is_some(),
-                            "int" => val.as_int().is_some() || {
-                                val.as_float()
-                                    .map(|f| f.fract() == 0.0)
-                                    .unwrap_or(false)
-                            },
+                            "int" => {
+                                val.as_int().is_some() || {
+                                    val.as_float().map(|f| f.fract() == 0.0).unwrap_or(false)
+                                }
+                            }
                             "boolean" | "bool" => val.as_bool().is_some(),
                             "list" | "array" => val.as_seq().is_some(),
                             _ => true,
@@ -5197,11 +5196,11 @@ fn validate_extraction(result: &Value, schema: &Value) -> Result<(), String> {
                             let elem_ok = match inner_type.as_str() {
                                 "string" => elem.as_str().is_some(),
                                 "number" => elem.as_float().is_some(),
-                                "int" => elem.as_int().is_some() || {
-                                    elem.as_float()
-                                        .map(|f| f.fract() == 0.0)
-                                        .unwrap_or(false)
-                                },
+                                "int" => {
+                                    elem.as_int().is_some() || {
+                                        elem.as_float().map(|f| f.fract() == 0.0).unwrap_or(false)
+                                    }
+                                }
                                 "boolean" | "bool" => elem.as_bool().is_some(),
                                 _ => true,
                             };

@@ -96,7 +96,7 @@ Output:
 
 ## 4. Quick LLM Call
 
-Sema is designed around LLM integration. To try it, make sure you have an API key set in your environment (e.g., `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GEMINI_API_KEY`).
+Sema is designed around LLM integration. To try it, make sure you have an API key set in your environment — Sema auto-detects all supported providers (Anthropic, OpenAI, Gemini, DeepSeek, Groq, xAI, Mistral, Moonshot, OpenRouter, Together AI, Fireworks AI, Cerebras, SambaNova, Perplexity, Ollama). Set any one:
 
 Start the REPL and call the completion primitive:
 

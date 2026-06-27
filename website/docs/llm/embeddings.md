@@ -6,8 +6,9 @@ outline: [2, 3]
 
 Generate vector embeddings from text and compute similarity between them. On startup
 `(llm/auto-configure)` picks an embedding provider by **precedence** — `JINA_API_KEY`,
-then `VOYAGE_API_KEY`, then `COHERE_API_KEY`; if none is set it falls back to
-`OPENAI_API_KEY` (`text-embedding-3-small`). The first key present wins.
+then `VOYAGE_API_KEY`, then `COHERE_API_KEY`, then `NOMIC_API_KEY`; if none is set it
+falls back to `OPENAI_API_KEY` (`text-embedding-3-small`). If `TOGETHER_API_KEY` or
+`FIREWORKS_API_KEY` is set, those are also detected. The first key present wins.
 
 ## Configuration
 
@@ -22,6 +23,15 @@ one provider for chat and another for embeddings. Pass `:default-model` to pick 
 (llm/configure-embeddings :voyage
   {:api-key (env "VOYAGE_API_KEY") :default-model "voyage-3-large"})
 
+(llm/configure-embeddings :nomic
+  {:api-key (env "NOMIC_API_KEY")})
+
+(llm/configure-embeddings :together
+  {:api-key (env "TOGETHER_API_KEY")})
+
+(llm/configure-embeddings :fireworks
+  {:api-key (env "FIREWORKS_API_KEY")})
+
 ;; OpenAI-compatible embedding provider, with a model and optional base URL
 (llm/configure-embeddings :openai
   {:api-key (env "OPENAI_API_KEY") :default-model "text-embedding-3-large"})
@@ -31,7 +41,7 @@ one provider for chat and another for embeddings. Pass `:default-model` to pick 
 
 ### `llm/embed`
 
-Generate an embedding for a string or a list of strings. Returns a **bytevector** containing densely-packed f64 values in little-endian format. This representation is 2× more memory efficient and 4× faster for similarity computations compared to a list of floats.
+Generate an embedding for a string or a list of strings. Returns a **bytevector** containing densely-packed f64 values in little-endian format. This format avoids per-element unboxing overhead for similarity computations compared to a list of floats.
 
 ```sema
 ;; Single embedding (returns a bytevector)
@@ -101,7 +111,7 @@ Compute cosine similarity between two embedding vectors. Returns a value between
 
 ### `llm/rerank`
 
-Reorder a list of candidate documents by their relevance to a query using a hosted **cross-encoder** reranker (Cohere, Jina, or Voyage — the same **API key** you already use for embeddings, e.g. `COHERE_API_KEY` / `JINA_API_KEY` / `VOYAGE_API_KEY`; see [Supported Embedding Providers](#supported-embedding-providers) below for setup). Where `llm/similarity` / `vector-store/search` embed the query and documents *independently* (a bi-encoder), a reranker reads the query and each document *together*, so it's far more precise. The standard pattern is to retrieve a generous shortlist by vector search, then rerank it to the best few.
+Reorder a list of candidate documents by their relevance to a query using a hosted **cross-encoder** reranker (Cohere, Jina, Voyage, Nomic, Together AI, or Fireworks AI — the same **API key** you already use for embeddings; see [Supported Embedding Providers](#supported-embedding-providers) below for setup). Where `llm/similarity` / `vector-store/search` embed the query and documents *independently* (a bi-encoder), a reranker reads the query and each document *together*, so it's far more precise. The standard pattern is to retrieve a generous shortlist by vector search, then rerank it to the best few.
 
 ```sema
 (llm/rerank "how do I read a file?"
@@ -110,7 +120,7 @@ Reorder a list of candidate documents by their relevance to a query using a host
 ;; => ({:index 1 :score 0.91 :document "use file/read to read a file"} ...)
 ```
 
-Returns `{:index :score :document}` maps, highest relevance first; `:index` points back into the input list. Options: `:top-k`, `:model`, and `:provider` (`:cohere` / `:jina` / `:voyage`). See the **[RAG guide](/docs/llm/rag)** for the full retrieve → rerank → answer pipeline.
+Returns `{:index :score :document}` maps, highest relevance first; `:index` points back into the input list. Options: `:top-k`, `:model`, and `:provider` (`:cohere` / `:jina` / `:voyage` / `:nomic` / `:together` / `:fireworks`). See the **[RAG guide](/docs/llm/rag)** for the full retrieve → rerank → answer pipeline.
 
 ## Token Counting
 
@@ -134,11 +144,14 @@ Returns a detailed estimate map with the token count and the estimation method u
 
 ## Supported Embedding Providers
 
-| Provider | Env Variable     |
-| -------- | ---------------- |
-| Jina     | `JINA_API_KEY`   |
-| Voyage   | `VOYAGE_API_KEY` |
-| Cohere   | `COHERE_API_KEY` |
-| OpenAI   | `OPENAI_API_KEY` |
+| Provider | Env Variable | Reranking | Default model |
+|----------|-------------|:---------:|---------------|
+| Jina | `JINA_API_KEY` | ✅ | `jina-embeddings-v3` |
+| Voyage | `VOYAGE_API_KEY` | ✅ | `voyage-3` |
+| Cohere | `COHERE_API_KEY` | ✅ | `embed-english-v3.0` |
+| Nomic | `NOMIC_API_KEY` | ✅ | `nomic-embed-text-v1.5` |
+| Together AI | `TOGETHER_API_KEY` | ✅ | `BAAI/bge-base-en-v1.5` |
+| Fireworks AI | `FIREWORKS_API_KEY` | ✅ | `fireworks/qwen3-embedding-8b` |
+| OpenAI | `OPENAI_API_KEY` | — | `text-embedding-3-small` |
 
 See [Provider Management](./providers.md) for the full provider capability table.

@@ -8,7 +8,7 @@
 - Integration tests: `crates/sema/tests/integration_test.rs`. Reader unit tests: `crates/sema-reader/src/reader.rs`.
 - IntelliJ plugin: `editors/intellij/`. Unit tests: `./gradlew test` (116 tests, JUnit 4). Full IDE integration: `./gradlew buildPlugin integrationTest`.
 
-## Architecture (Cargo workspace, 11 crates)
+## Architecture (Cargo workspace)
 
 - **sema-core** → NaN-boxed `Value(u64)` struct, `Env` (Rc+RefCell+hashbrown::HashMap), `SemaError` (thiserror), eval/call callbacks (`set_eval_callback`/`set_call_callback`), thread-local VFS
 - **sema-reader** → Lexer + s-expression parser → `Value` AST. Handles regex literals (`#"..."`), f-strings (`f"...${expr}..."`), short lambdas (`#(...)`), shebang lines
@@ -36,21 +36,17 @@
 - Examples live as `.sema` files in `playground/examples/<category>/` subdirectories
 - `playground/build.mjs` auto-generates `playground/src/examples.js` from those files — **never edit `examples.js` by hand**
 - To add a playground example: add the `.sema` file to the appropriate category dir, then run `cd playground && node build.mjs`
-- Categories: `getting-started`, `functional`, `data`, `http`, `llm-tools`, `patterns`, `visuals`, `math-crypto`
 
 ## Website
 
 - Hosted at **sema-lang.com**, deployed via `cd website && vercel --prod`
 - VitePress site, URLs require `.html` suffix: e.g. `https://sema-lang.com/docs/internals/lisp-comparison.html`
-- All docs pages are under `/docs/`: `https://sema-lang.com/docs/...`
 
 ## Bytecode File Format (.semac)
 
 - Spec: `website/docs/internals/bytecode-format.md` — **this is the single source of truth**
 - Serialization/deserialization lives in `crates/sema-vm/src/serialize.rs`
 - **Any change to opcodes, Chunk, Function, ExceptionEntry, or UpvalueDesc MUST update both the format spec and the serializer**
-- Format: 24-byte header (magic `\x00SEM` + version + flags), then sections (string table, function table, main chunk, optional debug sections)
-- Spur remapping: global opcodes use string table indices in the file, remapped to process-local Spurs on load
 
 ## Testing
 

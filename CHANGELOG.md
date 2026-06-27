@@ -4,6 +4,33 @@
 
 ### Added
 
+- **7 new chat/inference providers.** DeepSeek (`DEEPSEEK_API_KEY`),
+  OpenRouter (`OPENROUTER_API_KEY`), Together AI (`TOGETHER_API_KEY`),
+  Fireworks AI (`FIREWORKS_API_KEY`), Cerebras (`CEREBRAS_API_KEY`),
+  SambaNova (`SAMBANOVA_API_KEY`), and Perplexity (`PERPLEXITY_API_KEY`).
+  All are OpenAI-compatible and auto-configured from env vars.
+  `llm/configure`, `llm/auto-configure`, and `llm/with-fallback` support them.
+- **3 new embedding/reranking providers.** Nomic (`NOMIC_API_KEY`),
+  Together AI, and Fireworks AI now support embeddings and reranking via
+  `llm/configure-embeddings` and `llm/auto-configure`. New `RerankDialect`
+  variants for each provider's wire format.
+- **`:int` type validation in `llm/extract`.** The `:int` type tag is now
+  properly validated — accepts integers and whole-number floats, rejects
+  other types.
+- **`[:type]` list syntax in `llm/extract` schemas.** A field spec like
+  `{:authors [:string]}` is now sent to the model as "array of string" and
+  validated as a list where each element matches the inner type.
+
+### Fixed
+
+- **`llm/configure-embeddings` now wires reranking.** Previously, configuring
+  embeddings via `llm/configure-embeddings` for Jina, Voyage, or Cohere did
+  not call `.with_rerank()` or `set_rerank_provider()`, so `llm/rerank` would
+  fail with "does not support reranking". All three providers now correctly
+  set up reranking when configured via this path.
+- **`llm/extract` and `llm/classify` are now sandbox-gated with `Caps::LLM`.**
+  Previously only `llm/extract-from-image` was gated. Text-based extraction
+  and classification made LLM API calls even when the sandbox denied `Caps::LLM`.
 - **Dynamic workflows.** `defworkflow` / `phase` / `agent` / `checkpoint` /
   `parallel` / `pipeline` — a journaled, resumable agent-pipeline runtime.
   Define multi-phase LLM workflows as ordinary Sema code; the runtime journals

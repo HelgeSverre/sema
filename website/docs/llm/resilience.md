@@ -11,7 +11,7 @@ outline: [2, 3]
 Wraps a thunk with a fallback chain of providers. If the LLM call fails with one provider, automatically tries the next provider in the list.
 
 ```sema
-(llm/with-fallback [:anthropic :openai :groq]
+(llm/with-fallback [:anthropic :openai :deepseek]
   (lambda () (llm/complete "Hello")))
 ```
 
@@ -27,10 +27,10 @@ Model ids are provider-specific (a Claude id is meaningless to OpenAI), so each 
 To target a different model per provider within a single chain, give chain entries as `[provider model]` pairs or `{:provider :model}` maps. A per-provider override **wins over any `:model` pinned in the body**:
 
 ```sema
-;; Anthropic uses Opus, OpenAI uses GPT-5.5, Groq uses its default
+;; Anthropic uses Opus, OpenAI uses GPT-5.5, DeepSeek uses its default
 (llm/with-fallback [[:anthropic "claude-opus-4-8"]
                     [:openai    "gpt-5.5"]
-                    :groq]
+                    :deepseek]
   (lambda () (llm/complete "Hello")))
 
 ;; Map form is equivalent and lets you omit :model to use the provider default

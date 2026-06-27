@@ -126,7 +126,7 @@ import CustomPageLayout from './CustomPageLayout.vue'
             </p>
             <ul class="feature-list">
               <li><strong>Batch embeddings.</strong> <code>(llm/embed ["a" "b" "c"])</code> returns a list of vectors in one network call.</li>
-              <li><strong>Four providers.</strong> Jina, Voyage, Cohere, OpenAI. Auto-configured from env vars. Separate from your chat provider.</li>
+              <li><strong>Seven providers.</strong> Jina, Voyage, Cohere, Nomic, Together AI, Fireworks AI, OpenAI. Auto-configured from env vars. Separate from your chat provider.</li>
               <li><strong>Async-aware.</strong> Inside <code>(async/...)</code>, embeddings offload to the scheduler so sibling tasks overlap.</li>
             </ul>
           </div>
@@ -215,8 +215,8 @@ import CustomPageLayout from './CustomPageLayout.vue'
         <p class="sub" style="margin-bottom: 40px">
           Bi-encoders embed query and document independently — fast, but coarse.
           Cross-encoders read them together — slow, but precise. Sema's
-          <code>llm/rerank</code> calls a hosted cross-encoder (Cohere, Jina, or
-          Voyage) to reorder your candidates. The <code>:index</code> field maps
+          <code>llm/rerank</code> calls a hosted cross-encoder (Cohere, Jina,
+          Voyage, Nomic, Together AI, or Fireworks AI) to reorder your candidates. The <code>:index</code> field maps
           back to the original list.
         </p>
 
@@ -353,8 +353,8 @@ import CustomPageLayout from './CustomPageLayout.vue'
               all auto-configured from environment variables.
             </p>
             <ul class="feature-list">
-              <li><strong>Embedding providers.</strong> Jina, Voyage, Cohere, OpenAI — or any OpenAI-compatible endpoint via <code>:base-url</code>.</li>
-              <li><strong>Reranker providers.</strong> Cohere, Jina, Voyage — same API key, per-call override.</li>
+              <li><strong>Embedding providers.</strong> Jina, Voyage, Cohere, Nomic, Together AI, Fireworks AI, OpenAI — or any OpenAI-compatible endpoint via <code>:base-url</code>.</li>
+              <li><strong>Reranker providers.</strong> Cohere, Jina, Voyage, Nomic, Together AI, Fireworks AI — same API key, per-call override.</li>
               <li><strong>Separate from chat.</strong> <code>llm/configure-embeddings</code> lets you use Voyage for embeddings and Anthropic for chat.</li>
             </ul>
           </div>
@@ -366,6 +366,9 @@ import CustomPageLayout from './CustomPageLayout.vue'
                   <span class="chip">Jina</span>
                   <span class="chip">Voyage</span>
                   <span class="chip">Cohere</span>
+                  <span class="chip">Nomic</span>
+                  <span class="chip">Together</span>
+                  <span class="chip">Fireworks</span>
                   <span class="chip">OpenAI</span>
                 </div>
               </div>
@@ -375,6 +378,9 @@ import CustomPageLayout from './CustomPageLayout.vue'
                   <span class="chip">Cohere</span>
                   <span class="chip">Jina</span>
                   <span class="chip">Voyage</span>
+                  <span class="chip">Nomic</span>
+                  <span class="chip">Together</span>
+                  <span class="chip">Fireworks</span>
                 </div>
               </div>
               <div class="provider-group">
