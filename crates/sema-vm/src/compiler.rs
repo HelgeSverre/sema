@@ -95,6 +95,7 @@ fn collect_defines(expr: &ResolvedExpr, f: &mut impl FnMut(Spur)) {
                 collect_defines(e, f);
             }
         }
+        ResolvedExpr::Spanned(_, inner) => collect_defines(inner, f),
         _ => {}
     }
 }
