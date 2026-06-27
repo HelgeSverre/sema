@@ -644,6 +644,7 @@ import CustomPageLayout from './CustomPageLayout.vue'
   background: var(--gold-fade);
   padding: 1px 5px;
   border-radius: 4px;
+  white-space: nowrap;
 }
 
 /* ---------- feature rows ---------- */
