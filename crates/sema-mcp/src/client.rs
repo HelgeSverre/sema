@@ -77,9 +77,8 @@ impl McpClient {
         let result = self.request("tools/list", None).await?;
         let tools = result
             .get("tools")
-            .and_then(|value| value.as_array())
             .ok_or_else(|| "tools/list result did not include a tools array".to_string())?;
-        serde_json::from_value(serde_json::Value::Array(tools.clone()))
+        serde_json::from_value(tools.clone())
             .map_err(|err| format!("failed to decode tools/list response: {err}"))
     }
 
@@ -101,7 +100,7 @@ impl McpClient {
             .map_err(|err| format!("failed to decode tools/call response: {err}"))
     }
 
-    pub async fn close(mut self) -> Result<(), String> {
+    pub async fn close(&mut self) -> Result<(), String> {
         self.child
             .start_kill()
             .map_err(|err| format!("failed to terminate MCP server process: {err}"))?;
@@ -118,7 +117,7 @@ impl McpClient {
         params: Option<serde_json::Value>,
     ) -> Result<serde_json::Value, String> {
         let id = self.next_id;
-        self.next_id += 1;
+        self.next_id = self.next_id.wrapping_add(1);
 
         let request = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -152,7 +151,10 @@ impl McpClient {
             .map_err(|err| format!("failed to read MCP response: {err}"))?;
 
         if response_line.trim().is_empty() {
-            return Err("MCP server closed the response stream".to_string());
+            return Err(
+                "MCP server returned an empty response (the connection may have closed)"
+                    .to_string(),
+            );
         }
 
         let response: JsonRpcResponse = serde_json::from_str(response_line.trim())

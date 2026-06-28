@@ -51,7 +51,7 @@ for line in sys.stdin:
             "id": request_id,
             "result": {
                 "content": [{"type": "text", "text": args.get("text", "")}],
-                "isError": False,
+            "isError": json.loads("false"),
             },
         }
     else:
