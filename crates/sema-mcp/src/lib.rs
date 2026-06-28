@@ -8,5 +8,5 @@ pub mod server;
 pub mod tools;
 
 pub use builtins::register_mcp_builtins;
-pub use client::{McpClient, McpClientConfig};
+pub use client::{McpAuthConfig, McpClient, McpClientConfig};
 pub use server::{run_mcp_server, run_mcp_server_on};
