@@ -75,6 +75,80 @@ fn lookup_connection(handle: &str) -> Result<Rc<RefCell<McpConnection>>, SemaErr
     })
 }
 
+fn inject_auth_env(env_map: &mut HashMap<String, String>, config_json: &serde_json::Value) {
+    let set_if_present = |env_map: &mut HashMap<String, String>, key: &str, value: Option<&str>| {
+        if let Some(value) = value {
+            env_map.insert(key.to_string(), value.to_string());
+        }
+    };
+
+    let mut auth_token = None;
+    let mut authorization: Option<String> = None;
+
+    if let Some(auth_value) = config_json.get("auth") {
+        match auth_value {
+            serde_json::Value::String(token) => {
+                auth_token = Some(token.as_str());
+            }
+            serde_json::Value::Object(map) => {
+                auth_token = map.get("token").and_then(|value| value.as_str());
+                authorization = map
+                    .get("authorization")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string);
+                if authorization.is_none() {
+                    authorization =
+                        map.get("bearer")
+                            .and_then(|value| value.as_str())
+                            .map(|value| {
+                                let mut bearer_value = String::from("Bearer ");
+                                bearer_value.push_str(value);
+                                bearer_value
+                            });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if auth_token.is_none() {
+        auth_token = config_json
+            .get("token")
+            .and_then(|value| value.as_str())
+            .or_else(|| {
+                config_json
+                    .get("auth-token")
+                    .and_then(|value| value.as_str())
+            })
+            .or_else(|| {
+                config_json
+                    .get("auth_token")
+                    .and_then(|value| value.as_str())
+            });
+    }
+    if authorization.is_none() {
+        authorization = config_json
+            .get("authorization")
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+            .or_else(|| {
+                config_json
+                    .get("auth-authorization")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string)
+            })
+            .or_else(|| {
+                config_json
+                    .get("auth_authorization")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string)
+            });
+    }
+
+    set_if_present(env_map, "MCP_AUTH_TOKEN", auth_token);
+    set_if_present(env_map, "MCP_AUTHORIZATION", authorization.as_deref());
+}
+
 fn call_tool_via_connection(
     handle: &str,
     tool_name: &str,
@@ -111,7 +185,7 @@ pub fn register_mcp_builtins(env: &Env) {
             .iter()
             .filter_map(|value| value.as_str().map(|s| s.to_string()))
             .collect::<Vec<_>>();
-        let env_map = config_json
+        let mut env_map = config_json
             .get("env")
             .and_then(|value| value.as_object())
             .map(|object| {
@@ -121,7 +195,10 @@ pub fn register_mcp_builtins(env: &Env) {
                         value.as_str().map(|s| (key.to_string(), s.to_string()))
                     })
                     .collect::<HashMap<_, _>>()
-            });
+            })
+            .unwrap_or_default();
+        inject_auth_env(&mut env_map, &config_json);
+        let env_map = (!env_map.is_empty()).then_some(env_map);
         let cwd = config_json
             .get("cwd")
             .and_then(|value| value.as_str())

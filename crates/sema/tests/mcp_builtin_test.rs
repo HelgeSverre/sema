@@ -106,6 +106,95 @@ for line in sys.stdin:
 }
 
 #[test]
+fn test_mcp_connect_can_forward_auth_to_server_process() {
+    let server_script = r#"
+import json
+import os
+import sys
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+
+    request = json.loads(line)
+    method = request["method"]
+    request_id = request["id"]
+
+    if method == "initialize":
+        expected_token = "secret-token"
+        expected_authorization = "******"
+        if os.environ.get("MCP_AUTH_TOKEN") != expected_token or os.environ.get("MCP_AUTHORIZATION") != expected_authorization:
+            response = {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {"code": -32000, "message": "missing auth"},
+            }
+        else:
+            response = {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "serverInfo": {"name": "test-server", "version": "1.0"},
+                },
+            }
+    elif method == "tools/list":
+        response = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "tools": [
+                    {
+                        "name": "echo",
+                        "description": "Echo a string",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {"text": {"type": "string"}},
+                            "required": ["text"],
+                        },
+                    }
+                ]
+            },
+        }
+    elif method == "tools/call":
+        args = request.get("params", {}).get("arguments", {})
+        response = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "content": [{"type": "text", "text": args.get("text", "")}],
+                "isError": False,
+            },
+        }
+    else:
+        response = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "error": {"code": -32601, "message": "Method not found"},
+        }
+
+    sys.stdout.write(json.dumps(response) + "\n")
+    sys.stdout.flush()
+"#;
+
+    let encoded_script = serde_json::to_string(server_script).unwrap();
+    let interp = Interpreter::new();
+
+    interp
+        .eval_str(&format!(
+            r#"(define server (mcp/connect {{:command "python3" :args ["-c" {encoded_script}] :auth {{:token "secret-token" :authorization "******"}}}}))"#
+        ))
+        .unwrap();
+
+    let tools = interp.eval_str("(mcp/tools server)").unwrap();
+    assert_eq!(tools.as_seq().unwrap().len(), 1);
+
+    interp.eval_str("(mcp/close server)").unwrap();
+}
+
+#[test]
 fn test_mcp_tools_can_be_converted_into_agent_tool_defs() {
     let server_script = r#"
 import json
