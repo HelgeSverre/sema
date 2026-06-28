@@ -117,7 +117,7 @@ impl McpClient {
         params: Option<serde_json::Value>,
     ) -> Result<serde_json::Value, String> {
         let id = self.next_id;
-        self.next_id = self.next_id.wrapping_add(1);
+        self.next_id = self.next_id.checked_add(1).unwrap_or(i64::MAX);
 
         let request = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),

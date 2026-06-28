@@ -1,8 +1,7 @@
-use sema_mcp::{McpClient, McpClientConfig};
-use serde_json::json;
+use sema::{Interpreter, Value};
 
-#[tokio::test]
-async fn test_stdio_client_can_initialize_list_and_call_tools() {
+#[test]
+fn test_mcp_builtins_can_connect_list_and_call() {
     let server_script = r#"
 import json
 import sys
@@ -65,41 +64,43 @@ for line in sys.stdin:
     sys.stdout.flush()
 "#;
 
-    let mut client = McpClient::connect(McpClientConfig {
-        command: "python3".to_string(),
-        args: vec!["-c".to_string(), server_script.to_string()],
-        env: None,
-        cwd: None,
-    })
-    .await
-    .expect("failed to start MCP stdio client");
+    let script_literal = serde_json::to_string(server_script).unwrap();
+    let interp = Interpreter::new();
 
-    let init_result = client
-        .initialize()
-        .await
-        .expect("initialize request should succeed");
-    assert_eq!(init_result["serverInfo"]["name"], "test-server");
+    interp
+        .eval_str(&format!(
+            r#"(define server (mcp/connect {{:command "python3" :args ["-c" {script_literal}]}}))"#
+        ))
+        .unwrap();
 
-    let tools = client
-        .list_tools()
-        .await
-        .expect("tools/list request should succeed");
-    assert_eq!(tools.len(), 1);
-    assert_eq!(tools[0].name, "echo");
+    let tools = interp.eval_str("(mcp/tools server)").unwrap();
+    let tools_list = tools.as_seq().unwrap();
+    assert_eq!(tools_list.len(), 1);
+    let tool = tools_list[0].as_map_ref().unwrap();
+    assert_eq!(
+        tool.get(&Value::keyword("name")).unwrap().as_str().unwrap(),
+        "echo"
+    );
 
-    let result = client
-        .call_tool("echo", json!({ "text": "hello" }))
-        .await
-        .expect("tools/call request should succeed");
-    assert!(!result.is_error);
-    assert_eq!(result.content.len(), 1);
-    assert!(matches!(
-        &result.content[0],
-        sema_mcp::protocol::ToolContent::Text { text } if text == "hello"
-    ));
+    let result = interp
+        .eval_str(r#"(mcp/call server "echo" {:text "hello"})"#)
+        .unwrap();
+    let result_map = result.as_map_ref().unwrap();
+    let content = result_map
+        .get(&Value::keyword("content"))
+        .unwrap()
+        .as_seq()
+        .unwrap();
+    assert_eq!(content.len(), 1);
+    let first = content[0].as_map_ref().unwrap();
+    assert_eq!(
+        first
+            .get(&Value::keyword("text"))
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        "hello"
+    );
 
-    client
-        .close()
-        .await
-        .expect("closing the client should succeed");
+    interp.eval_str("(mcp/close server)").unwrap();
 }
