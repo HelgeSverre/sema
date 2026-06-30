@@ -191,7 +191,9 @@ fn doc(env: &Env, name: &str) {
             }
         }
         None => {
-            if SPECIAL_FORM_NAMES.contains(&name) || docs::lookup(name).is_some() {
+            if let Some(entry) = docs::lookup(name) {
+                print!("{}", docs::rendered_doc_entry(name, entry));
+            } else if SPECIAL_FORM_NAMES.contains(&name) {
                 if let Some(rendered) = docs::rendered_doc(name) {
                     print!("{rendered}");
                 } else {

@@ -53,6 +53,10 @@ pub(crate) fn completion_candidates(prefix: &str) -> Vec<String> {
 
 pub(crate) fn rendered_doc(name: &str) -> Option<String> {
     let entry = lookup(name)?;
+    Some(rendered_doc_entry(name, entry))
+}
+
+pub(crate) fn rendered_doc_entry(name: &str, entry: &DocEntry) -> String {
     let kind = if entry.special_form {
         "special form"
     } else {
@@ -71,7 +75,7 @@ pub(crate) fn rendered_doc(name: &str) -> Option<String> {
         )
     };
     let md = sema_lsp::builtin_docs::render_markdown(entry);
-    Some(format!("{heading}\n{}\n", render_terminal_markdown(&md)))
+    format!("{heading}\n{}\n", render_terminal_markdown(&md))
 }
 
 pub(crate) fn print_rendered(text: &str, pager: PagerMode) -> io::Result<()> {
