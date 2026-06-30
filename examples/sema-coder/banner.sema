@@ -1,0 +1,35 @@
+;; banner.sema — Sema Coder wordmark + welcome
+;;
+;; Uses the screen-control primitives (term/set-title) and brand theme. The
+;; banner is intentionally compact so it doesn't dominate the scrollback.
+
+(load "theme.sema")
+
+(define banner-lines
+  (list
+    "   ┌─┐┌─┐┌┬┐┌─┐   ┌─┐┌─┐┌┬┐┌─┐┬─┐"
+    "   └─┐├┤ │││├─┤   │  │ │ ││├┤ ├┬┘"
+    "   └─┘└─┘┴ ┴┴ ┴   └─┘└─┘─┴┘└─┘┴└─"))
+
+(define (show-banner version)
+  (term/set-title "Sema Coder")
+  (io/println-error "")
+  (for-each (lambda (line) (io/println-error (accent line))) banner-lines)
+  (io/println-error
+    (format "   ~a  ~a"
+      (muted "the lisp-native coding agent")
+      (faint (format "v~a" version))))
+  (io/println-error ""))
+
+(define (show-welcome cwd model)
+  (io/println-error
+    (format "   ~a  ~a"
+      (faint "dir")
+      (muted cwd)))
+  (io/println-error
+    (format "   ~a  ~a"
+      (faint "model")
+      (muted (if (= model "") "auto" model))))
+  (io/println-error
+    (faint "   type /help for commands · /quit to exit"))
+  (io/println-error ""))

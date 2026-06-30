@@ -292,6 +292,29 @@ eval_tests! {
 }
 
 // ============================================================
+// Host/app primitives — path safety, config dir, terminal control
+// (the missing pieces for self-hosted TUI apps like Sema Coder)
+// ============================================================
+
+eval_tests! {
+    // path/relative-to is pure path math (no fs).
+    path_relative_to_descendant: r#"(path/relative-to "/a/b" "/a/b/c/d")"# => Value::string("c/d"),
+    path_relative_to_sibling: r#"(path/relative-to "/a/b/c" "/a/x")"# => Value::string("../../x"),
+    path_relative_to_same: r#"(path/relative-to "/a/b" "/a/b")"# => Value::string("."),
+    // path/within? — containment after resolving `.`/`..` (lexical for non-existent paths).
+    path_within_descendant: r#"(path/within? "/a/b" "/a/b/c")"# => Value::bool(true),
+    path_within_self: r#"(path/within? "/a/b" "/a/b")"# => Value::bool(true),
+    path_within_escape: r#"(path/within? "/a/b" "/a/x")"# => Value::bool(false),
+    path_within_traversal_escape: r#"(path/within? "/a/b" "/a/b/../x")"# => Value::bool(false),
+    // sys/config-dir always yields a non-empty path string.
+    config_dir_is_string: "(string? (sys/config-dir))" => Value::bool(true),
+    // Terminal control sequences return nil (their effect is the bytes on stdout).
+    term_move_to_returns_nil: "(term/move-to 1 1)" => Value::nil(),
+    term_flush_returns_nil: "(term/flush)" => Value::nil(),
+    term_set_title_returns_nil: r#"(term/set-title "x")"# => Value::nil(),
+}
+
+// ============================================================
 // Debug helpers
 // ============================================================
 

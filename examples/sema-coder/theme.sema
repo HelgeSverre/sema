@@ -1,0 +1,26 @@
+;; theme.sema — Sema Coder brand palette
+;;
+;; On-brand with sema-lang.com: warm gold (#c8a855) accent on a dark canvas.
+;; All colors go through term/rgb so they render as true-color where supported
+;; and degrade gracefully elsewhere. Keep every UI string flowing through these
+;; helpers so a future :theme switch is a one-file change.
+
+;; Brand gold — the sema accent (#c8a855)
+(define (accent text)     (term/rgb text 200 168 85))
+;; Darker gold for secondary accents (#a08838)
+(define (accent-dim text) (term/rgb text 160 136 56))
+;; Warm muted text for hints / metadata (#968c79)
+(define (muted text)      (term/rgb text 150 140 121))
+;; Faint — least prominent
+(define (faint text)      (term/dim text))
+
+;; Semantic status colors (reuse the 16-color set so they stay legible on any bg)
+(define (ok text)    (term/green text))
+(define (warn text)  (term/yellow text))
+(define (bad text)   (term/red text))
+
+;; A bold gold heading
+(define (heading text) (accent (term/style text :bold)))
+
+;; The prompt glyph — a heavy angle, gold and bold
+(define prompt-glyph "❯")

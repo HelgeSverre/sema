@@ -270,6 +270,39 @@ fn path_extension_impl(args: &[Value]) -> Result<Value, SemaError> {
     Ok(Value::string(ext))
 }
 
+/// Resolve `.`/`..` and make `p` absolute *without* touching the filesystem
+/// (so it works for paths that don't exist yet — e.g. a file the agent is about
+/// to write). Symlinks are NOT resolved here; use `path/canonicalize` when the
+/// path exists and symlink resolution matters.
+fn lexical_absolute(p: &std::path::Path) -> std::path::PathBuf {
+    use std::path::Component;
+    let mut out = if p.is_absolute() {
+        std::path::PathBuf::new()
+    } else {
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+    };
+    for comp in p.components() {
+        match comp {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::RootDir => out.push(std::path::MAIN_SEPARATOR.to_string()),
+            Component::Prefix(pre) => out.push(pre.as_os_str()),
+            Component::Normal(seg) => out.push(seg),
+        }
+    }
+    out
+}
+
+/// Best-effort absolute, real-path form: canonicalize when the path exists
+/// (resolving symlinks — the safe form for containment checks), else fall back
+/// to a lexical absolute so not-yet-created paths still compare sensibly.
+fn resolved_path(p: &str) -> std::path::PathBuf {
+    let path = std::path::Path::new(p);
+    std::fs::canonicalize(path).unwrap_or_else(|_| lexical_absolute(path))
+}
+
 pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     register_fn(env, "display", |args| {
         let mut output = String::new();
@@ -665,6 +698,73 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         Ok(Value::bool(std::path::Path::new(p).is_absolute()))
+    });
+
+    // path/canonicalize — resolve symlinks + `.`/`..` to a real absolute path.
+    // Errors if the path doesn't exist (that's what makes it the safe form for
+    // checking where a path *actually* points).
+    crate::register_fn_path_gated(
+        env,
+        sandbox,
+        Caps::FS_READ,
+        "path/canonicalize",
+        &[0],
+        |args| {
+            check_arity!(args, "path/canonicalize", 1);
+            let s = args[0]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+            let c = std::fs::canonicalize(s)
+                .map_err(|e| SemaError::Io(format!("path/canonicalize {s}: {e}")))?;
+            Ok(Value::string(&c.to_string_lossy()))
+        },
+    );
+
+    // path/relative-to — express PATH relative to BASE (pure path math, no fs).
+    // (path/relative-to base path) → e.g. base "/a/b", path "/a/b/c/d" → "c/d".
+    register_fn(env, "path/relative-to", |args| {
+        check_arity!(args, "path/relative-to", 2);
+        let base = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let target = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        let base = lexical_absolute(std::path::Path::new(base));
+        let target = lexical_absolute(std::path::Path::new(target));
+        let bc: Vec<_> = base.components().collect();
+        let tc: Vec<_> = target.components().collect();
+        let mut i = 0;
+        while i < bc.len() && i < tc.len() && bc[i] == tc[i] {
+            i += 1;
+        }
+        let mut rel = std::path::PathBuf::new();
+        for _ in i..bc.len() {
+            rel.push("..");
+        }
+        for c in &tc[i..] {
+            rel.push(c.as_os_str());
+        }
+        if rel.as_os_str().is_empty() {
+            rel.push(".");
+        }
+        Ok(Value::string(&rel.to_string_lossy()))
+    });
+
+    // path/within? — is CHILD contained inside (or equal to) BASE? Resolves
+    // symlinks via canonicalize when paths exist, so it catches `../` escapes
+    // and symlink escapes. The cornerstone of agent path sandboxing.
+    register_fn(env, "path/within?", |args| {
+        check_arity!(args, "path/within?", 2);
+        let base = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let child = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        let base = resolved_path(base);
+        let child = resolved_path(child);
+        Ok(Value::bool(child.starts_with(&base)))
     });
 
     crate::register_fn_path_gated(

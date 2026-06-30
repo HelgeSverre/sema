@@ -393,6 +393,36 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         Ok(Value::string(&sema_core::sema_home().to_string_lossy()))
     });
 
+    // sys/config-dir — platform-appropriate user config base directory, so apps
+    // (e.g. Sema Coder) can store config without branching on OS in Sema:
+    //   macOS:   ~/Library/Application Support
+    //   Windows: %APPDATA%
+    //   else:    $XDG_CONFIG_HOME or ~/.config
+    register_fn(env, "sys/config-dir", |args| {
+        check_arity!(args, "sys/config-dir", 0);
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_default();
+        let dir = if cfg!(target_os = "macos") {
+            std::path::PathBuf::from(&home)
+                .join("Library")
+                .join("Application Support")
+        } else if cfg!(windows) {
+            std::env::var("APPDATA")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| {
+                    std::path::PathBuf::from(&home)
+                        .join("AppData")
+                        .join("Roaming")
+                })
+        } else {
+            std::env::var("XDG_CONFIG_HOME")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| std::path::PathBuf::from(&home).join(".config"))
+        };
+        Ok(Value::string(&dir.to_string_lossy()))
+    });
+
     crate::register_fn_gated(env, sandbox, Caps::ENV_READ, "sys/temp-dir", |args| {
         check_arity!(args, "sys/temp-dir", 0);
         Ok(Value::string(&std::env::temp_dir().to_string_lossy()))

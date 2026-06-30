@@ -2052,6 +2052,18 @@
       "body": "Test if a path is absolute.\n\n```sema\n(path/absolute? \"/usr/bin\")   ; => #t\n(path/absolute? \"relative\")  ; => #f\n```"
     },
     {
+      "name": "path/canonicalize",
+      "module": "file-io",
+      "section": "Path Manipulation",
+      "summary": "Resolve `path` to an absolute real path, following symlinks and collapsing `.`/`..`. Errors if the path does not exist — that requirement is what makes it the trustworthy form for deciding where a path *actually* points (e.g. before a security check).",
+      "returns": "string",
+      "examples": [
+        "(path/canonicalize \"./src/../Cargo.toml\")  ; => \"/abs/repo/Cargo.toml\""
+      ],
+      "body": "Resolve `path` to an absolute real path, following symlinks and collapsing `.`/`..`. Errors if the path does not exist — that requirement is what makes it the trustworthy form for deciding where a path *actually* points (e.g. before a security check).\n\n```sema\n(path/canonicalize \"./src/../Cargo.toml\")  ; => \"/abs/repo/Cargo.toml\"\n```\n\nFor not-yet-created paths, or pure path math that must not touch the filesystem, use `path/relative-to` / `path/within?`.",
+      "syntax": "(path/canonicalize path)"
+    },
+    {
       "name": "path/dir",
       "aliases": [
         "path/dirname"
@@ -2103,6 +2115,18 @@
       "syntax": "(path/join part ...)"
     },
     {
+      "name": "path/relative-to",
+      "module": "file-io",
+      "section": "Path Manipulation",
+      "summary": "Express `path` relative to `base` using pure path math (no filesystem access, so it works for paths that do not exist). Inserts `..` segments when `path` is outside `base`.",
+      "returns": "string",
+      "examples": [
+        "(path/relative-to \"/a/b\" \"/a/b/c/d\")  ; => \"c/d\"\n(path/relative-to \"/a/b/c\" \"/a/x\")    ; => \"../../x\"\n(path/relative-to \"/a/b\" \"/a/b\")      ; => \".\""
+      ],
+      "body": "Express `path` relative to `base` using pure path math (no filesystem access, so it works for paths that do not exist). Inserts `..` segments when `path` is outside `base`.\n\n```sema\n(path/relative-to \"/a/b\" \"/a/b/c/d\")  ; => \"c/d\"\n(path/relative-to \"/a/b/c\" \"/a/x\")    ; => \"../../x\"\n(path/relative-to \"/a/b\" \"/a/b\")      ; => \".\"\n```",
+      "syntax": "(path/relative-to base path)"
+    },
+    {
       "name": "path/stem",
       "module": "file-io",
       "section": "Path Manipulation",
@@ -2111,6 +2135,18 @@
         "(path/stem \"file.rs\")          ; => \"file\"\n(path/stem \"archive.tar.gz\")   ; => \"archive.tar\"   (only \".gz\" stripped)\n(path/stem \"/a/b/notes.md\")    ; => \"notes\"          (dir dropped too)"
       ],
       "body": "Return the filename without its final extension. Only the last extension is removed, so `stem` and `extension` complement each other: `\"archive.tar.gz\"` splits into stem `\"archive.tar\"` and extension `\"gz\"`. Operates on the filename only — any directory prefix is dropped first.\n\n```sema\n(path/stem \"file.rs\")          ; => \"file\"\n(path/stem \"archive.tar.gz\")   ; => \"archive.tar\"   (only \".gz\" stripped)\n(path/stem \"/a/b/notes.md\")    ; => \"notes\"          (dir dropped too)\n```"
+    },
+    {
+      "name": "path/within?",
+      "module": "file-io",
+      "section": "Path Manipulation",
+      "summary": "Return `#t` if `child` is contained inside (or equal to) `base`. Resolves `.`/`..` and, for paths that exist, follows symlinks via canonicalization — so it catches both traversal (`../`) and symlink escapes that a substring check would miss. The cornerstone of sandboxing agent file access to a workspace.",
+      "returns": "boolean",
+      "examples": [
+        "(path/within? \"/repo\" \"/repo/src/main.rs\")  ; => #t\n(path/within? \"/repo\" \"/repo/../etc\")       ; => #f"
+      ],
+      "body": "Return `#t` if `child` is contained inside (or equal to) `base`. Resolves `.`/`..` and, for paths that exist, follows symlinks via canonicalization — so it catches both traversal (`../`) and symlink escapes that a substring check would miss. The cornerstone of sandboxing agent file access to a workspace.\n\n```sema\n(path/within? \"/repo\" \"/repo/src/main.rs\")  ; => #t\n(path/within? \"/repo\" \"/repo/../etc\")       ; => #f\n```",
+      "syntax": "(path/within? base child)"
     },
     {
       "name": "pprint",
@@ -9855,6 +9891,18 @@
       "body": "Dispatch any pending signal callbacks. Call this from your event loop (typically right after `io/read-key` / `io/read-key-timeout` returns) so handlers run in a predictable place rather than asynchronously interrupting Sema code.\n\n```sema\n(let loop ()\n  (sys/check-signals)\n  (let ((key (io/read-key-timeout 50)))\n    (when key (handle-key key))\n    (loop)))\n```\n\nIf no signals are pending, this is essentially free — it just checks three atomic booleans."
     },
     {
+      "name": "sys/config-dir",
+      "module": "system",
+      "section": "System Information",
+      "summary": "Return the platform-appropriate base directory for user configuration, so apps can locate their config without branching on the operating system.",
+      "returns": "string",
+      "examples": [
+        "(path/join (sys/config-dir) \"sema\" \"sema-code\" \"config.json\")"
+      ],
+      "body": "Return the platform-appropriate base directory for user configuration, so apps can locate their config without branching on the operating system.\n\n| Platform | Location |\n|----------|----------|\n| Linux    | `$XDG_CONFIG_HOME` or `~/.config` |\n| macOS    | `~/Library/Application Support` |\n| Windows  | `%APPDATA%` |\n\n```sema\n(path/join (sys/config-dir) \"sema\" \"sema-code\" \"config.json\")\n```",
+      "syntax": "(sys/config-dir)"
+    },
+    {
       "name": "sys/cwd",
       "module": "system",
       "section": "System Information",
@@ -10095,6 +10143,13 @@
       "body": "Restore the TTY to cooked mode using the token returned by `io/tty-raw!`.\n\n```sema\n(io/tty-restore! tok)\n```"
     },
     {
+      "name": "term/bell",
+      "module": "terminal",
+      "section": "Screen Control",
+      "summary": "Emit the terminal bell (BEL) — an audible or visible alert depending on terminal settings. Takes no arguments.",
+      "body": "Emit the terminal bell (BEL) — an audible or visible alert depending on terminal settings. Takes no arguments."
+    },
+    {
       "name": "term/black",
       "module": "terminal",
       "section": "Colors",
@@ -10139,6 +10194,34 @@
       "body": "Render text in **bold** (increased intensity).\n\n```sema\n(term/bold \"important\")\n(println (term/bold \"Warning: check your input\"))\n```"
     },
     {
+      "name": "term/clear",
+      "module": "terminal",
+      "section": "Screen Control",
+      "summary": "Clear the entire screen and move the cursor to the top-left (home) position. Takes no arguments.",
+      "body": "Clear the entire screen and move the cursor to the top-left (home) position. Takes no arguments."
+    },
+    {
+      "name": "term/clear-below",
+      "module": "terminal",
+      "section": "Screen Control",
+      "summary": "Clear from the cursor to the end of the screen. Takes no arguments.",
+      "body": "Clear from the cursor to the end of the screen. Takes no arguments."
+    },
+    {
+      "name": "term/clear-line",
+      "module": "terminal",
+      "section": "Screen Control",
+      "summary": "Clear the line the cursor is on, without moving the cursor. Useful for redrawing a status line or spinner in place. Takes no arguments.",
+      "body": "Clear the line the cursor is on, without moving the cursor. Useful for redrawing a status line or spinner in place. Takes no arguments."
+    },
+    {
+      "name": "term/cursor-home",
+      "module": "terminal",
+      "section": "Screen Control",
+      "summary": "Move the cursor to the top-left corner (row 1, column 1) without clearing. Takes no arguments.",
+      "body": "Move the cursor to the top-left corner (row 1, column 1) without clearing. Takes no arguments."
+    },
+    {
       "name": "term/cyan",
       "module": "terminal",
       "section": "Colors",
@@ -10171,6 +10254,34 @@
         "(term/dim \"less important\")"
       ],
       "body": "Render text with decreased intensity.\n\n```sema\n(term/dim \"less important\")\n```"
+    },
+    {
+      "name": "term/disable-mouse",
+      "module": "terminal",
+      "section": "Screen Control",
+      "summary": "Disable mouse event reporting previously turned on with `term/enable-mouse`. Takes no arguments.",
+      "body": "Disable mouse event reporting previously turned on with `term/enable-mouse`. Takes no arguments."
+    },
+    {
+      "name": "term/enable-mouse",
+      "module": "terminal",
+      "section": "Screen Control",
+      "summary": "Enable mouse event reporting (X10 plus SGR extended coordinates) so the terminal sends click and movement events on stdin. Pair with `term/disable-mouse`. Takes no arguments.",
+      "body": "Enable mouse event reporting (X10 plus SGR extended coordinates) so the terminal sends click and movement events on stdin. Pair with `term/disable-mouse`. Takes no arguments."
+    },
+    {
+      "name": "term/enter-alt-screen",
+      "module": "terminal",
+      "section": "Screen Control",
+      "summary": "Switch to the terminal's alternate screen buffer. Use at app start so the TUI gets a clean canvas; pair with `term/leave-alt-screen` on exit to restore the user's scrollback exactly as it was. Takes no arguments.",
+      "body": "Switch to the terminal's alternate screen buffer. Use at app start so the TUI gets a clean canvas; pair with `term/leave-alt-screen` on exit to restore the user's scrollback exactly as it was. Takes no arguments."
+    },
+    {
+      "name": "term/flush",
+      "module": "terminal",
+      "section": "Screen Control",
+      "summary": "Flush buffered stdout. The other `term/*` control functions self-flush; use this when you batch styled `io/print` writes and want to present a frame all at once. Takes no arguments.",
+      "body": "Flush buffered stdout. The other `term/*` control functions self-flush; use this when you batch styled `io/print` writes and want to present a frame all at once. Takes no arguments."
     },
     {
       "name": "term/gray",
@@ -10207,6 +10318,13 @@
       "body": "Wrap `text` in ANSI escape codes so it renders in green in a terminal that supports color.\n\n```sema\n(term/green \"hello\")\n```"
     },
     {
+      "name": "term/hide-cursor",
+      "module": "terminal",
+      "section": "Screen Control",
+      "summary": "Hide the text cursor — reduces flicker while a TUI redraws. Pair with `term/show-cursor`. Takes no arguments.",
+      "body": "Hide the text cursor — reduces flicker while a TUI redraws. Pair with `term/show-cursor`. Takes no arguments."
+    },
+    {
       "name": "term/inverse",
       "module": "terminal",
       "section": "Modifiers",
@@ -10227,6 +10345,13 @@
       "body": "Render text in *italic*.\n\n```sema\n(term/italic \"emphasis\")\n```"
     },
     {
+      "name": "term/leave-alt-screen",
+      "module": "terminal",
+      "section": "Screen Control",
+      "summary": "Leave the alternate screen buffer and restore the primary screen and its scrollback. The inverse of `term/enter-alt-screen`. Takes no arguments.",
+      "body": "Leave the alternate screen buffer and restore the primary screen and its scrollback. The inverse of `term/enter-alt-screen`. Takes no arguments."
+    },
+    {
       "name": "term/magenta",
       "module": "terminal",
       "section": "Colors",
@@ -10242,6 +10367,18 @@
         "(term/magenta \"hello\")"
       ],
       "body": "Wrap `text` in ANSI escape codes so it renders in magenta in a terminal that supports color.\n\n```sema\n(term/magenta \"hello\")\n```"
+    },
+    {
+      "name": "term/move-to",
+      "module": "terminal",
+      "section": "Screen Control",
+      "summary": "Move the cursor to a 1-based `row` and `col`. Coordinates below 1 are clamped to 1.",
+      "returns": "nil",
+      "examples": [
+        "(term/move-to 1 1)      ; top-left\n(term/move-to 10 20)    ; row 10, column 20"
+      ],
+      "body": "Move the cursor to a 1-based `row` and `col`. Coordinates below 1 are clamped to 1.\n\n```sema\n(term/move-to 1 1)      ; top-left\n(term/move-to 10 20)    ; row 10, column 20\n```",
+      "syntax": "(term/move-to row col)"
     },
     {
       "name": "term/red",
@@ -10261,6 +10398,13 @@
       "body": "Wrap `text` in ANSI escape codes so it renders in red in a terminal that supports color.\n\n```sema\n(term/red \"hello\")\n```"
     },
     {
+      "name": "term/restore-cursor",
+      "module": "terminal",
+      "section": "Screen Control",
+      "summary": "Restore the cursor to the position saved by `term/save-cursor`. Takes no arguments.",
+      "body": "Restore the cursor to the position saved by `term/save-cursor`. Takes no arguments."
+    },
+    {
       "name": "term/rgb",
       "module": "terminal",
       "section": "True Color",
@@ -10270,6 +10414,32 @@
         ";; Build a gradient\n(for-each\n  (lambda (i)\n    (display (term/rgb \"█\" (* i 25) 50 (- 255 (* i 25)))))\n  (range 11))\n(println)"
       ],
       "body": "Apply 24-bit true color to text. Takes the text followed by red, green, and blue values (integers 0–255).\n\n```sema\n(term/rgb \"orange\" 255 165 0)\n(term/rgb \"coral\" 255 127 80)\n(term/rgb \"teal\" 0 128 128)\n(term/rgb \"hot pink\" 255 105 180)\n```\n\nUses the `ESC[38;2;r;g;bm` escape sequence format, which is supported by most modern terminals.\n\n```sema\n;; Build a gradient\n(for-each\n  (lambda (i)\n    (display (term/rgb \"█\" (* i 25) 50 (- 255 (* i 25)))))\n  (range 11))\n(println)\n```"
+    },
+    {
+      "name": "term/save-cursor",
+      "module": "terminal",
+      "section": "Screen Control",
+      "summary": "Save the current cursor position, to be restored later with `term/restore-cursor`. Takes no arguments.",
+      "body": "Save the current cursor position, to be restored later with `term/restore-cursor`. Takes no arguments."
+    },
+    {
+      "name": "term/set-title",
+      "module": "terminal",
+      "section": "Screen Control",
+      "summary": "Set the terminal window/tab title (OSC 0).",
+      "returns": "nil",
+      "examples": [
+        "(term/set-title \"Sema Coder\")"
+      ],
+      "body": "Set the terminal window/tab title (OSC 0).\n\n```sema\n(term/set-title \"Sema Coder\")\n```",
+      "syntax": "(term/set-title title)"
+    },
+    {
+      "name": "term/show-cursor",
+      "module": "terminal",
+      "section": "Screen Control",
+      "summary": "Show the text cursor again after `term/hide-cursor`. Takes no arguments.",
+      "body": "Show the text cursor again after `term/hide-cursor`. Takes no arguments."
     },
     {
       "name": "term/spinner-start",
@@ -10363,6 +10533,18 @@
         "(term/white \"hello\")"
       ],
       "body": "Wrap `text` in ANSI escape codes so it renders in white in a terminal that supports color.\n\n```sema\n(term/white \"hello\")\n```"
+    },
+    {
+      "name": "term/write-at",
+      "module": "terminal",
+      "section": "Screen Control",
+      "summary": "Move the cursor to a 1-based `row`/`col` and write `text` there in one operation. Combine with `term/style`/`term/rgb` for colored output.",
+      "returns": "nil",
+      "examples": [
+        "(term/write-at 3 5 (term/rgb \"status: ok\" 200 168 85))"
+      ],
+      "body": "Move the cursor to a 1-based `row`/`col` and write `text` there in one operation. Combine with `term/style`/`term/rgb` for colored output.\n\n```sema\n(term/write-at 3 5 (term/rgb \"status: ok\" 200 168 85))\n```",
+      "syntax": "(term/write-at row col text)"
     },
     {
       "name": "term/yellow",
