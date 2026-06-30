@@ -10,13 +10,13 @@ import CustomPageLayout from './CustomPageLayout.vue'
       <span class="hero-paren l" aria-hidden="true">(</span>
       <span class="hero-paren r" aria-hidden="true">)</span>
       <div class="wrap">
-        <p class="eyebrow">A Lisp with LLM primitives<span class="sep">·</span>Rust<span class="sep">·</span>MIT</p>
-        <h1>Stop rewriting <em>the agent loop.</em></h1>
+        <p class="eyebrow">Agent-native Lisp<span class="sep">·</span>LLM workflows<span class="sep">·</span>Rust<span class="sep">·</span>MIT</p>
+        <h1>A language for code your AI writes — and you can still <em>trust.</em></h1>
         <p class="lede">
-          Every LLM script grows the same scaffolding: retries, caching, cost caps,
-          rate limits, tool dispatch, conversation state. <strong>Sema makes that
-          scaffolding the runtime</strong> — your script stays the size of its idea,
-          ships as a single binary, and your coding agent already speaks the language.
+          Sema is an agent-native Lisp with built-in LLM calls, schema-backed tools,
+          replayable cassettes, journaled workflows, OpenTelemetry traces, and
+          single-binary deploys — so the program stays small, inspectable, and
+          hard to accidentally turn into a haunted SDK pile.
         </p>
         <div class="hero-actions">
           <a class="btn btn-gold" href="/docs/">Get started</a>
@@ -142,14 +142,31 @@ messages = [{<span class="c-str">"role"</span>: <span class="c-str">"user"</span
       </div>
     </section>
 
+    <!-- ============ CHECKABLE ============ -->
+    <section id="checkable">
+      <div class="wrap">
+        <h2>Agent-native means checkable.</h2>
+        <p class="sub">
+          Generated code is only useful if you can constrain it. Sema workflows are
+          ordinary code, but the runtime sees the important boundaries: model calls,
+          tool dispatches, budgets, checkpoints, retries, and outputs. That means a
+          run can be replayed from cassettes, traced with OpenTelemetry, resumed from
+          a journal, and shipped as one binary — with executable policies coming soon,
+          instead of “please be safe” prompt vibes.
+        </p>
+      </div>
+    </section>
+
     <!-- ============ AGENT / LISP OBJECTION ============ -->
     <section id="agents">
       <div class="wrap">
-        <p class="kicker">“Wait — a Lisp?”</p>
-        <h2>You won't write most of it anyway.</h2>
+        <h2>Why Lisp?</h2>
         <p class="sub">
-          Your coding agent will. And a Lisp is the language with the least surface
-          for an agent to be wrong about.
+          Because the agent has to write it. Sema is designed as a small, stable target
+          for generated programs — one syntax rule, no package-manager archaeology, no
+          framework version roulette. A Lisp is the dialect with the least surface for
+          an agent to be wrong about; the code is already data, so the runtime can
+          inspect it, transform it, check it, journal it, and replay it.
         </p>
 
         <div class="agent-grid">
@@ -245,7 +262,7 @@ messages = [{<span class="c-str">"role"</span>: <span class="c-str">"user"</span
     <section id="runtime">
       <div class="wrap">
         <p class="kicker">The runtime, in one screen</p>
-        <h2>Everything you'd otherwise hand-roll.</h2>
+        <h2>The agent runtime, not another framework.</h2>
 
         <div class="forms">
           <div class="form-row"><code>(llm/with-budget {:max-cost-usd 1.00} f)</code><span>hard spend cap, scoped to a block</span>
