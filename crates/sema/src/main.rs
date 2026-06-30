@@ -60,6 +60,7 @@ fn find_config() -> Option<SemaConfig> {
 mod archive;
 mod colors;
 mod cross_compile;
+mod docs;
 mod import_tracer;
 mod pkg;
 mod repl;
@@ -201,6 +202,23 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Browse builtin and special-form documentation
+    #[command(args_conflicts_with_subcommands = true)]
+    Doc {
+        /// Show docs in a pager even when the output fits on one screen
+        #[arg(long, conflicts_with = "no_pager")]
+        pager: bool,
+
+        /// Print directly without invoking a pager
+        #[arg(long, conflicts_with = "pager")]
+        no_pager: bool,
+
+        #[command(subcommand)]
+        command: Option<DocCommands>,
+
+        /// Symbol to show documentation for (implicit `show`)
+        symbol: Option<String>,
+    },
     /// Package manager
     Pkg {
         #[command(subcommand)]
@@ -321,6 +339,35 @@ enum Commands {
         /// Disable LLM features
         #[arg(long)]
         no_llm: bool,
+    },
+    #[command(hide = true, name = "__complete-doc-symbols")]
+    CompleteDocSymbols {
+        /// Prefix to filter documentation symbol names by
+        prefix: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum DocCommands {
+    /// Show documentation for a symbol
+    Show {
+        /// Symbol to show documentation for
+        symbol: String,
+    },
+    /// Search documentation by natural-language query
+    Search {
+        /// Query to search for
+        #[arg(required = true, num_args = 1..)]
+        query: Vec<String>,
+
+        /// Maximum number of results to show
+        #[arg(short = 'n', long, default_value_t = sema_mcp::docs_search::DEFAULT_LIMIT)]
+        limit: usize,
+    },
+    /// Search symbol names by prefix, substring, and fuzzy match
+    Apropos {
+        /// Pattern to search for
+        pattern: String,
     },
 }
 
@@ -571,12 +618,7 @@ fn main() {
                 if install {
                     install_completions(shell);
                 } else {
-                    clap_complete::generate(
-                        shell,
-                        &mut Cli::command(),
-                        "sema",
-                        &mut std::io::stdout(),
-                    );
+                    print!("{}", generate_completions(shell));
                 }
             }
             Commands::Compile {
@@ -592,6 +634,24 @@ fn main() {
             }
             Commands::Disasm { file, json } => {
                 run_disasm(&file, json);
+            }
+            Commands::Doc {
+                pager,
+                no_pager,
+                command,
+                symbol,
+            } => {
+                let pager = if no_pager {
+                    docs::PagerMode::Never
+                } else if pager {
+                    docs::PagerMode::Always
+                } else {
+                    docs::PagerMode::Auto
+                };
+                if let Err(msg) = run_doc(command, symbol, pager) {
+                    eprintln!("Error: {msg}");
+                    std::process::exit(1);
+                }
             }
             Commands::Pkg { command } => {
                 let result = match command {
@@ -747,6 +807,11 @@ fn main() {
                 no_llm,
             } => {
                 run_eval(stdin, expr, json, path, sandbox, no_llm);
+            }
+            Commands::CompleteDocSymbols { prefix } => {
+                for name in docs::completion_candidates(prefix.as_deref().unwrap_or("")) {
+                    println!("{name}");
+                }
             }
         }
         return;
@@ -3009,6 +3074,106 @@ pub(crate) fn print_error(e: &SemaError) {
     }
 }
 
+fn run_doc(
+    command: Option<DocCommands>,
+    symbol: Option<String>,
+    pager: docs::PagerMode,
+) -> Result<(), String> {
+    match command {
+        Some(DocCommands::Show { symbol }) => show_doc(&symbol, pager),
+        Some(DocCommands::Search { query, limit }) => {
+            let query = query.join(" ");
+            let query = query.trim().to_string();
+            if query.is_empty() {
+                return Err("usage: sema doc search <query>".to_string());
+            }
+            let rendered = docs::render_search_results(&query, &docs::doc_search_results(&query, limit));
+            docs::print_rendered(&rendered, pager).map_err(|e| format!("writing docs: {e}"))
+        }
+        Some(DocCommands::Apropos { pattern }) => {
+            let hits = docs::builtin_apropos_hits(&pattern);
+            let rendered = docs::render_apropos_hits(&pattern, &hits);
+            docs::print_rendered(&rendered, pager).map_err(|e| format!("writing docs: {e}"))
+        }
+        None => {
+            let Some(symbol) = symbol else {
+                return Err("usage: sema doc <symbol> | sema doc search <query> | sema doc apropos <pattern>".to_string());
+            };
+            show_doc(&symbol, pager)
+        }
+    }
+}
+
+fn show_doc(symbol: &str, pager: docs::PagerMode) -> Result<(), String> {
+    let Some(rendered) = docs::rendered_doc(symbol) else {
+        return Err(format!("documentation not found: {symbol}"));
+    };
+    docs::print_rendered(&rendered, pager).map_err(|e| format!("writing docs: {e}"))
+}
+
+fn generate_completions(shell: Shell) -> String {
+    let mut buf = Vec::new();
+    clap_complete::generate(shell, &mut Cli::command(), "sema", &mut buf);
+    let mut out = String::from_utf8(buf).expect("clap completion output is utf-8");
+    out.push_str(dynamic_doc_completion_script(shell));
+    out
+}
+
+fn dynamic_doc_completion_script(shell: Shell) -> &'static str {
+    match shell {
+        Shell::Bash => {
+            r#"
+
+# Dynamic Sema doc symbol completion.
+_sema_doc_complete() {
+    local cur="${COMP_WORDS[COMP_CWORD]}"
+    if [[ ${COMP_WORDS[1]} == doc && ${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=( $(compgen -W "$(sema __complete-doc-symbols "$cur")" -- "$cur") )
+        return
+    fi
+    if [[ ${COMP_WORDS[1]} == doc && ${COMP_WORDS[2]} == show && ${COMP_CWORD} -eq 3 ]]; then
+        COMPREPLY=( $(compgen -W "$(sema __complete-doc-symbols "$cur")" -- "$cur") )
+        return
+    fi
+    _sema "$@"
+}
+complete -o nosort -o bashdefault -o default -F _sema_doc_complete sema
+"#
+        }
+        Shell::Zsh => {
+            r#"
+
+# Dynamic Sema doc symbol completion.
+_sema_doc_complete() {
+  if (( CURRENT == 3 )) && [[ "${words[2]}" == "doc" ]]; then
+    local -a matches
+    matches=("${(@f)$(sema __complete-doc-symbols "${words[CURRENT]}")}")
+    _describe 'Sema doc symbol' matches
+    return
+  fi
+  if (( CURRENT == 4 )) && [[ "${words[2]}" == "doc" && "${words[3]}" == "show" ]]; then
+    local -a matches
+    matches=("${(@f)$(sema __complete-doc-symbols "${words[CURRENT]}")}")
+    _describe 'Sema doc symbol' matches
+    return
+  fi
+  _sema "$@"
+}
+compdef _sema_doc_complete sema
+"#
+        }
+        Shell::Fish => {
+            r#"
+
+# Dynamic Sema doc symbol completion.
+complete -c sema -n '__fish_seen_subcommand_from doc; and not __fish_seen_subcommand_from show search apropos' -a '(sema __complete-doc-symbols (commandline -ct))'
+complete -c sema -n '__fish_seen_subcommand_from doc show' -a '(sema __complete-doc-symbols (commandline -ct))'
+"#
+        }
+        _ => "",
+    }
+}
+
 fn install_completions(shell: Shell) {
     let home = match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
         Ok(h) => PathBuf::from(h),
@@ -3043,9 +3208,8 @@ fn install_completions(shell: Shell) {
         });
     }
 
-    let mut buf = Vec::new();
-    clap_complete::generate(shell, &mut Cli::command(), "sema", &mut buf);
-    std::fs::write(&path, &buf).unwrap_or_else(|e| {
+    let completions = generate_completions(shell);
+    std::fs::write(&path, completions).unwrap_or_else(|e| {
         eprintln!("Error writing {}: {e}", path.display());
         std::process::exit(1);
     });

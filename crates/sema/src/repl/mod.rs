@@ -21,7 +21,7 @@ mod completer;
 mod disasm;
 mod editor;
 mod headless;
-mod highlighter;
+pub(crate) mod highlighter;
 mod hinter;
 mod history;
 mod inspector;

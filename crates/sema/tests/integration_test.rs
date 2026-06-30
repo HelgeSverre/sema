@@ -13497,6 +13497,74 @@ fn test_package_imports() {
 // ── sema eval subcommand ──────────────────────────────────────────
 
 #[test]
+fn test_doc_show_builtin() {
+    let output = sema_cmd()
+        .args(["doc", "string/split"])
+        .output()
+        .expect("failed to run sema doc");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("string/split"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("Split a string by a literal delimiter"),
+        "stdout: {stdout}"
+    );
+}
+
+#[test]
+fn test_doc_search_finds_builtin() {
+    let output = sema_cmd()
+        .args(["doc", "search", "split", "a", "string"])
+        .output()
+        .expect("failed to run sema doc search");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("string/split"), "stdout: {stdout}");
+}
+
+#[test]
+fn test_doc_apropos_finds_name_matches() {
+    let output = sema_cmd()
+        .args(["doc", "apropos", "string/spl"])
+        .output()
+        .expect("failed to run sema doc apropos");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("string/split") || stdout.contains("string-split"),
+        "stdout: {stdout}"
+    );
+}
+
+#[test]
+fn test_complete_doc_symbols_filters_prefix() {
+    let output = sema_cmd()
+        .args(["__complete-doc-symbols", "string/spl"])
+        .output()
+        .expect("failed to run sema __complete-doc-symbols");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.lines().any(|line| line == "string/split"));
+    assert!(!stdout.lines().any(|line| line == "map"));
+}
+
+#[test]
 fn test_eval_expr_json() {
     let output = sema_cmd()
         .args(["eval", "--expr", "(+ 1 2)", "--json", "--no-llm"])

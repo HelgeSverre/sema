@@ -3,9 +3,7 @@ use std::collections::HashSet;
 use sema_core::{pretty_print, Env, Spur, ValueView};
 use sema_eval::{Interpreter, SPECIAL_FORM_NAMES};
 
-use crate::{colors, print_error, LAST_FILE, LAST_SOURCE};
-
-use super::highlighter::highlight_doc_markdown;
+use crate::{colors, docs, print_error, LAST_FILE, LAST_SOURCE};
 
 pub const REPL_COMMANDS: &[&str] = &[
     ",quit",
@@ -139,14 +137,8 @@ fn record_source(expr: &str) {
     LAST_FILE.with(|f| *f.borrow_mut() = None);
 }
 
-fn print_doc_entry(e: &sema_docs::DocEntry) {
-    let md = sema_lsp::builtin_docs::render_markdown(e);
-    println!("{}", highlight_doc_markdown(&md));
-}
-
 fn doc(env: &Env, name: &str) {
     let spur = sema_core::intern(name);
-    let builtin_docs = sema_lsp::builtin_docs::BuiltinDocs::load();
     match env.get(spur) {
         Some(val) => {
             // VM closures arrive wrapped as NativeFn — peel that first so we
@@ -165,9 +157,10 @@ fn doc(env: &Env, name: &str) {
             } else {
                 match val.view() {
                     ValueView::NativeFn(_f) => {
-                        println!("  {} {} native-fn", colors::cyan(name), colors::dim(":"),);
-                        if let Some(e) = builtin_docs.get(name) {
-                            print_doc_entry(e);
+                        if let Some(rendered) = docs::rendered_doc(name) {
+                            print!("{rendered}");
+                        } else {
+                            println!("  {} {} native-fn", colors::cyan(name), colors::dim(":"));
                         }
                     }
                     ValueView::Lambda(l) => {
@@ -198,14 +191,12 @@ fn doc(env: &Env, name: &str) {
             }
         }
         None => {
-            if SPECIAL_FORM_NAMES.contains(&name) {
-                println!("  {} {} special form", colors::cyan(name), colors::dim(":"));
-                if let Some(e) = builtin_docs.get(name) {
-                    print_doc_entry(e);
+            if SPECIAL_FORM_NAMES.contains(&name) || docs::lookup(name).is_some() {
+                if let Some(rendered) = docs::rendered_doc(name) {
+                    print!("{rendered}");
+                } else {
+                    eprintln!("  {} {name}", colors::red_bold("not found:"));
                 }
-            } else if let Some(e) = builtin_docs.get(name) {
-                println!("  {} {} builtin", colors::cyan(name), colors::dim(":"));
-                print_doc_entry(e);
             } else {
                 eprintln!("  {} {name}", colors::red_bold("not found:"));
             }
