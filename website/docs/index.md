@@ -6,6 +6,8 @@ outline: [2, 3]
 
 Sema is a Scheme-like Lisp where prompts are s-expressions, conversations are persistent data structures, and LLM calls are just another form of evaluation. It combines a Scheme core with Clojure-style keywords (`:foo`), map literals (`{:key val}`), and vector literals (`[1 2 3]`).
 
+> **The name** — Sema takes its name from Ancient Greek *sêma* (σῆμα): a sign, signal, or token of meaning. The same root runs through *semantics*, *semaphore*, and *semiotics* — fitting for a language built to carry meaning legibly between humans, machines, and the models that read both.
+
 ## Why Sema?
 
 - **LLMs as language primitives** — prompts, messages, conversations, tools, and agents are first-class data types, not string templates bolted on
