@@ -10,13 +10,15 @@ import CustomPageLayout from './CustomPageLayout.vue'
       <span class="hero-paren l" aria-hidden="true">(</span>
       <span class="hero-paren r" aria-hidden="true">)</span>
       <div class="wrap">
-        <p class="eyebrow">A Lisp with LLM primitives<span class="sep">·</span>Rust<span class="sep">·</span>MIT</p>
-        <h1>Stop rewriting <em>the agent loop.</em></h1>
+        <p class="eyebrow">Agent-native Lisp<span class="sep">·</span>LLM workflows<span class="sep">·</span>Rust<span class="sep">·</span>MIT</p>
+        <h1>A language for code your AI writes —<br>and <em>you still have to trust.</em></h1>
         <p class="lede">
-          Every LLM script grows the same scaffolding: retries, caching, cost caps,
-          rate limits, tool dispatch, conversation state. <strong>Sema makes that
-          scaffolding the runtime</strong> — your script stays the size of its idea,
-          ships as a single binary, and your coding agent already speaks the language.
+          Sema is a small Lisp runtime for the programs your coding agent writes —
+          the ones you still have to run in production. <strong>Built-in LLM calls, schema-backed
+          tools, replayable cassettes, journaled workflows, OpenTelemetry traces,
+          and single-binary deploys</strong> are runtime primitives — so the
+          program stays the size of its idea, and your coding agent already speaks
+          the language.
         </p>
         <div class="hero-actions">
           <a class="btn btn-gold" href="/docs/">Get started</a>
@@ -142,14 +144,42 @@ messages = [{<span class="c-str">"role"</span>: <span class="c-str">"user"</span
       </div>
     </section>
 
+    <!-- ============ AGENT-NATIVE MEANS CHECKABLE ============ -->
+    <section id="checkable">
+      <div class="wrap">
+        <p class="kicker">Why agent-native matters</p>
+        <h2>Agent-native means checkable.</h2>
+        <p class="sub">
+          Generated code is only useful if you can constrain it. Sema workflows are
+          ordinary code, but the runtime sees the boundaries that matter:
+        </p>
+
+        <ul class="claims">
+          <li><strong>Model calls and tool dispatches</strong> pass through the
+            runtime, so every prompt, result, and retry is something it can observe.</li>
+          <li><strong>Budgets and checkpoints</strong> are scopes the program can't
+            forget — a spend cap or a resume point is part of the run, not a comment.</li>
+          <li><strong>Outputs are values</strong>, not free text to re-parse —
+            schema-backed tools and extraction hand typed data back.</li>
+        </ul>
+
+        <p class="sub" style="margin-top:22px">
+          So a run can be replayed from cassettes, traced with OpenTelemetry, resumed
+          from a journal, shipped as one binary — and, <em>coming soon</em>, guarded by
+          executable policies instead of “please be safe” prompt vibes.
+        </p>
+      </div>
+    </section>
+
     <!-- ============ AGENT / LISP OBJECTION ============ -->
     <section id="agents">
       <div class="wrap">
-        <p class="kicker">“Wait — a Lisp?”</p>
-        <h2>You won't write most of it anyway.</h2>
+        <p class="kicker">Why Lisp?</p>
+        <h2>Because the agent has to write it.</h2>
         <p class="sub">
-          Your coding agent will. And a Lisp is the language with the least surface
-          for an agent to be wrong about.
+          Sema is built as a small, stable target for generated programs — the
+          language with the least surface for an agent to be wrong about. The code is
+          already data, so the runtime can inspect it, check it, journal it, and replay it.
         </p>
 
         <div class="agent-grid">
@@ -245,7 +275,7 @@ messages = [{<span class="c-str">"role"</span>: <span class="c-str">"user"</span
     <section id="runtime">
       <div class="wrap">
         <p class="kicker">The runtime, in one screen</p>
-        <h2>Everything you'd otherwise hand-roll.</h2>
+        <h2>The agent runtime, not another framework.</h2>
 
         <div class="forms">
           <div class="form-row"><code>(llm/with-budget {:max-cost-usd 1.00} f)</code><span>hard spend cap, scoped to a block</span>
