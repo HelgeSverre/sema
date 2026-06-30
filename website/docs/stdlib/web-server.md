@@ -432,6 +432,60 @@ Use the `:ws` method in the router:
 (http/serve (http/router routes) {:port 3000})
 ```
 
+## WebSocket Client
+
+Connect to a WebSocket server with `ws/connect`. A connection is a closeable
+stream, so `with-open` closes it automatically — on both the normal and the
+error path.
+
+```sema
+(with-open (sock (ws/connect "wss://echo.websocket.events"))
+  (ws/send sock "hello")
+  (match (ws/recv sock)
+    {:text msg}   (println msg)
+    {:binary buf} (handle-bytes buf)
+    {:close info} :done))
+```
+
+### `ws/connect`
+
+`(ws/connect url)` — open a connection to a `ws://` or `wss://` URL, returning a
+connection value. Blocks until the handshake completes (or fails). Requires the
+`network` capability. Inside an `async/spawn` task it yields cooperatively, so
+sibling tasks run while the handshake and later receives are in flight.
+
+### `ws/send`
+
+`(ws/send conn msg)` — send a message. The payload type follows `msg`:
+
+| `msg` type   | Frame sent                              |
+| ------------ | --------------------------------------- |
+| string       | text frame                              |
+| bytevector   | binary frame                            |
+| map          | text frame containing the JSON encoding |
+
+### `ws/recv`
+
+`(ws/recv conn)` — receive the next message, blocking until one arrives. Returns
+a single-key tagged map so a `match` can dispatch on the frame type:
+
+| Return value             | Meaning                                          |
+| ------------------------ | ------------------------------------------------ |
+| `{:text "…"}`            | a text frame                                     |
+| `{:binary #u8(…)}`       | a binary frame                                   |
+| `{:close {:code :reason}}` | the server closed the connection               |
+| `nil`                    | the connection is fully drained and closed       |
+
+A protocol error surfaces as a thrown error you can `try`/`catch`.
+
+### `ws/close` and `ws/connected?`
+
+`(ws/close conn)` closes the connection (idempotent; also done for you by
+`with-open`). `(ws/connected? conn)` reports whether the socket is still live.
+
+> WebSocket support is native-only — it is not available in the browser
+> playground (WASM) build.
+
 ## Complete Examples
 
 ### REST API

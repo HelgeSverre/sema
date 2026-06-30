@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **WebSocket client (`ws/*`).** Connect to `ws://`/`wss://` servers with
+  `ws/connect`, then `ws/send`, `ws/recv`, `ws/close`, and `ws/connected?`. A
+  connection is a closeable stream, so the new `with-open` macro (a RAII alias of
+  `with-stream`) closes it on both the normal and error paths. `ws/send` accepts a
+  string (text frame), a bytevector (binary frame), or a map (sent as JSON text);
+  `ws/recv` returns a tagged map (`{:text …}`, `{:binary …}`, `{:close …}`, or
+  `nil` once drained) for `match`. Top-level calls block; inside an `async/spawn`
+  task they yield cooperatively, mirroring the HTTP client's offload model. Gated
+  on the `network` capability; native-only (not in the WASM playground). The
+  server side (`:ws` routes / `http/websocket`) already shipped. (#49)
+
 ## 1.28.1
 
 ### Fixed

@@ -1304,6 +1304,101 @@ fn test_websocket_close_from_server() {
     child.wait().ok();
 }
 
+// ws/* error paths that never touch the network (no #[ignore] — run in CI).
+#[test]
+fn test_websocket_client_arg_errors() {
+    // Non-websocket value rejected with a typed error.
+    assert!(eval_err("(ws/recv 5)")
+        .to_string()
+        .contains("expected websocket"));
+    assert!(eval_err(r#"(ws/send 5 "x")"#)
+        .to_string()
+        .contains("expected websocket"));
+    // A real stream that is not a websocket is still rejected.
+    assert!(eval_err(r#"(ws/recv (stream/open-input "Cargo.toml"))"#)
+        .to_string()
+        .contains("expected websocket"));
+    // Non-ws:// URL is rejected before any connection attempt.
+    let err = eval_err(r#"(ws/connect "http://example.com")"#).to_string();
+    assert!(err.contains("not a websocket URL"), "{err}");
+    // Arity.
+    assert!(eval_err("(ws/connect)").to_string().contains("ws/connect"));
+    assert!(eval_err("(ws/send)").to_string().contains("ws/send"));
+}
+
+// The Sema WebSocket *client* (`ws/connect`/`ws/send`/`ws/recv`/`ws/close`),
+// round-tripped against the Sema WebSocket *server*. Drives both ends through
+// the binary: a server subprocess echoes "re:" + msg, and a client subprocess
+// connects, sends text and a JSON map, and prints each typed reply.
+#[test]
+#[ignore] // requires network
+fn test_websocket_client_round_trip() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mut server = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(
+            r#"
+            (http/serve
+              (http/router
+                [[:ws "/chat" (fn (conn)
+                  (let loop ()
+                    (let ((msg ((:recv conn))))
+                      (when msg
+                        ((:send conn) (string-append "re:" msg))
+                        (loop)))))]])
+              {:port 19908})
+        "#,
+        )
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn server");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    // Client: text round-trip, connected? predicate, and a map sent as JSON text.
+    let client = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(
+            r#"
+            (with-open (sock (ws/connect "ws://127.0.0.1:19908/chat"))
+              (println (ws/connected? sock))
+              (ws/send sock "hello")
+              (println (ws/recv sock))
+              (ws/send sock {:n 42})
+              (println (ws/recv sock)))
+        "#,
+        )
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("Failed to run client");
+
+    server.kill().ok();
+    server.wait().ok();
+
+    let stdout = String::from_utf8_lossy(&client.stdout);
+    assert!(
+        client.status.success(),
+        "client failed: stdout={stdout:?} stderr={:?}",
+        String::from_utf8_lossy(&client.stderr)
+    );
+    assert!(
+        stdout.contains("#t"),
+        "connected? should be true: {stdout:?}"
+    );
+    assert!(
+        stdout.contains(r#"{:text "re:hello"}"#),
+        "text echo missing: {stdout:?}"
+    );
+    assert!(
+        stdout.contains(r#"re:{\"n\":42}"#),
+        "json-map echo missing: {stdout:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // SSE streaming integration tests (require network)
 // ---------------------------------------------------------------------------

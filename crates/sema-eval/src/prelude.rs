@@ -76,6 +76,12 @@ pub const PRELUDE: &str = r#"
          (stream/close ,var)
          res#))))
 
+;; with-open: RAII cleanup alias of with-stream, so files and sockets share one
+;; closeable form. Closes the bound resource on both the normal and error paths.
+;; (with-open (sock (ws/connect "wss://…")) (ws/send sock "hi") (ws/recv sock))
+(defmacro with-open (binding . body)
+  `(with-stream ,binding ,@body))
+
 ;; dotimes: execute body n times with a counter variable
 ;; (dotimes (i 10) (println i)) — prints 0..9
 (defmacro dotimes (binding . body)

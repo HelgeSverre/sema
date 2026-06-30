@@ -1,7 +1,9 @@
 # WebSocket Features in Sema — Investigation & Plan
 
 Tracking issue: [#49](https://github.com/HelgeSverre/sema/issues/49)
-Status: **proposal / pre-implementation**. Author: investigation pass.
+Status: **Phase 1 (client MVP) implemented** — see `crates/sema-stdlib/src/ws.rs`,
+the `with-open` prelude macro, and `test_websocket_client_*` in `server_test.rs`.
+Phases 2–4 below remain proposed.
 
 ## TL;DR
 
@@ -237,10 +239,11 @@ Follow the repo convention (network tests `#[ignore]`, deterministic tests alway
 
 ## 7. Phasing
 
-- **Phase 0 — decision.** Confirm §2 (pull-first) and §3 (stream-handle). *(needs sign-off)*
-- **Phase 1 — client MVP.** `ws/connect`, `ws/send` (text), `ws/recv` (typed), `ws/close`,
-  `ws/connected?`; `with-open`; `wss://`/TLS; `Caps::NETWORK`; dual top-level/async paths; ignored
-  round-trip test + error-path eval tests; docs page; playground/example.
+- **Phase 0 — decision.** ✅ Confirmed §2 (pull-first) and §3 (stream-handle).
+- **Phase 1 — client MVP.** ✅ Done. `ws/connect`, `ws/send` (text/binary/JSON), `ws/recv` (typed),
+  `ws/close`, `ws/connected?`; `with-open`; `wss://`/TLS via rustls; `Caps::NETWORK`; dual
+  top-level/async paths; ignored round-trip test + no-network error-path tests; docs in
+  `web-server.md`. (Playground example deferred — native-only.)
 - **Phase 2 — comprehensive client.** Binary frames, `{:json …}`, headers/subprotocols,
   `ws/recv-timeout`, `ws/ping`, `ws/listen` evented macro, reconnect-with-backoff helper.
 - **Phase 3 — server parity.** Binary frames server-side, unify `conn` under `ws/*`, close codes,
