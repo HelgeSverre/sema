@@ -13,6 +13,7 @@
 //! so nothing depends on `oauth2`'s (reqwest-0.12) built-in client.
 
 pub mod discovery;
+pub mod store;
 
 use oauth2::{CsrfToken, PkceCodeChallenge, PkceCodeVerifier};
 
