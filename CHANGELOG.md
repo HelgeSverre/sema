@@ -7,8 +7,8 @@
 - **Agent & TUI host primitives** (issue #53) — the building blocks for
   self-hosted terminal apps written in Sema (see the
   [Sema Coder](https://github.com/HelgeSverre/sema/tree/main/examples/sema-coder)
-  reference app and the [Agent & TUI Primitives](https://sema-lang.com/docs/stdlib/agent-primitives)
-  docs):
+  reference app; the primitives are documented per module under the
+  [standard library reference](https://sema-lang.com/docs/stdlib/)):
   - **Terminal screen control** — `term/enter-alt-screen`, `term/leave-alt-screen`,
     `term/clear`, `term/clear-line`, `term/clear-below`, `term/move-to`,
     `term/write-at`, `term/cursor-home`, `term/hide-cursor`, `term/show-cursor`,

@@ -333,3 +333,25 @@ Yielding **native** functions (e.g., `channel/recv`, `async/sleep`) passed *dire
 ;; Correct: wrap the native in a lambda
 (map (fn (c) (channel/recv c)) (list ch ch ch))
 ```
+
+## Event loop
+
+`event/select` polls a list of sources and returns the first that's ready (or
+`nil` on timeout) — the unified wait a TUI loop needs, over keypresses,
+subprocess output, and timers.
+
+```sema
+(define proc (proc/spawn ["make" "watch"]))
+(let loop ()
+  (let ((ev (event/select
+              (list {:type :key}                 ; a keypress
+                    {:type :proc :handle proc}   ; output or exit
+                    (time/tick 16))              ; ~60fps redraw tick
+              1000)))                            ; ms timeout
+    (cond
+      ((nil? ev) (loop))                          ; timed out
+      ((= (:type ev) :key)   (handle-key (:value ev)))
+      ((= (:type ev) :proc)  (drain-output proc))
+      ((= (:type ev) :timer) (redraw)))
+    (loop)))
+```
