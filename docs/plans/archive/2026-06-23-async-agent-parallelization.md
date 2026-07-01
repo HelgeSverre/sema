@@ -1,3 +1,5 @@
+> **Archived — consolidated into [`../2026-07-01-cooperative-scheduling.md`](../2026-07-01-cooperative-scheduling.md).** That doc is the canonical design; this is retained for its change log and verification notes.
+
 # Concurrent `agent/run` on the Cooperative Scheduler
 
 **Status:** Phase 1 (AwaitIo gate) **✅ SHIPPED & VERIFIED** on branch `feat/async-awaitio` (2026-06-23). The generic `AwaitIo` cooperative-yield is implemented (`sema-core` `IoHandle`/`IoPoll`/`AwaitIo` + park condvar; `sema-vm` wake-arm + park-on-IO branch; `sema-llm` `SHARED_RT` + `llm/io-sleep-once` spike leaf). **Independently verified (observed):** 5×1s IO-sleeps via `async/all` → **1002 ms** (not 5000); sleeper beside a 1500 ms IO wakes at **211 ms** (not starved); `async/timeout 300` over a 2000 ms IO **fires at 312 ms**; `async/timeout 2000` over 500 ms IO **returns at 503 ms**; peak in-flight ≥2; `cargo test --workspace` **83 ok / 0 failed**.

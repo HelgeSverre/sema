@@ -1,3 +1,5 @@
+> **Archived — consolidated into [`../2026-07-01-cooperative-scheduling.md`](../2026-07-01-cooperative-scheduling.md).** That doc is the canonical design; this is retained for its change log and verification notes.
+
 # Concurrent `llm/complete` · `classify` · `extract` + True Cancellation
 
 **Status:** Planning → implementing (2026-06-23). Follow-on from the shipped

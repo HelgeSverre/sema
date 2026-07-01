@@ -1,3 +1,5 @@
+> **Archived — consolidated into [`../2026-07-01-cooperative-scheduling.md`](../2026-07-01-cooperative-scheduling.md).** That doc is the canonical design; this is retained for its change log and verification notes.
+
 # Plan — Breakpoints & stepping inside async tasks
 
 **Status:** Slice 1 (native DAP STOP+CONTINUE) + Slice 2 (WASM playground cooperative STOP+CONTINUE) SHIPPED 2026-06-23. Slice 3 (the three Slice-1/2 follow-ups) SHIPPED 2026-06-24. Bug write-up retired once fixed (history in git); the residual cross-task stepping gap is tracked as ASYNC-2 in `docs/deferred.md`.
