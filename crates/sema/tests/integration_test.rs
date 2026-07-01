@@ -13494,6 +13494,53 @@ fn test_package_imports() {
     .unwrap();
 }
 
+// ── sema completions (shell completion generation) ────────────────
+
+#[test]
+fn test_completions_all_shells_generate_without_panic() {
+    // Regression guard: a hidden `__complete-doc-symbols` clap subcommand once
+    // made clap_complete's bash generator panic. Every shell must generate a
+    // non-empty script and exit 0.
+    for shell in ["bash", "zsh", "fish", "powershell", "elvish"] {
+        let output = sema_cmd()
+            .args(["completions", shell])
+            .output()
+            .expect("failed to run sema completions");
+        assert!(
+            output.status.success(),
+            "sema completions {shell} did not exit 0; stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            !output.stdout.is_empty(),
+            "sema completions {shell} produced no script"
+        );
+    }
+}
+
+#[test]
+fn test_completions_bash_zsh_fish_wire_dynamic_doc_hook() {
+    // The interactive shells must include the dynamic doc-symbol hook that calls
+    // back into `sema __complete-doc-symbols`; bash must also define the wrapper.
+    for shell in ["bash", "zsh", "fish"] {
+        let output = sema_cmd()
+            .args(["completions", shell])
+            .output()
+            .expect("failed to run sema completions");
+        let script = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            script.contains("__complete-doc-symbols"),
+            "{shell} completion missing dynamic doc-symbol hook"
+        );
+    }
+    let bash = sema_cmd().args(["completions", "bash"]).output().unwrap();
+    let bash = String::from_utf8_lossy(&bash.stdout);
+    assert!(
+        bash.contains("_sema_doc_complete"),
+        "bash completion missing the doc-completion wrapper function"
+    );
+}
+
 // ── sema eval subcommand ──────────────────────────────────────────
 
 #[test]

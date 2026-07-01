@@ -503,4 +503,102 @@ mod tests {
         let plain = render_terminal_markdown_inner("```sema\n(a 1)\n```\n", false);
         assert!(!plain.contains('\x1b'), "unexpected ansi: {plain:?}");
     }
+
+    #[test]
+    fn first_doc_line_skips_code_and_strips_backticks() {
+        // Must skip a leading fenced code block, return the first prose line, and
+        // strip inline-code backticks (this drives the apropos/search summaries).
+        let doc = "```sema\n(some code)\n```\nThe `real` summary line.\nSecond line.";
+        assert_eq!(first_doc_line(doc), "The real summary line.");
+    }
+
+    #[test]
+    fn apropos_ranks_prefix_before_substring() {
+        // Prefix hits (tier 0) must outrank substring hits (tier 1) even when the
+        // substring hit sorts earlier alphabetically — proving it's tiering, not
+        // just an alpha sort. "flatmap" contains "map" and sorts before "map".
+        let mut summaries = BTreeMap::new();
+        summaries.insert("map".to_string(), String::new());
+        summaries.insert("flatmap".to_string(), String::new());
+        let hits = search_name_summaries("map", &summaries);
+        let names: Vec<&str> = hits.iter().map(|h| h.name.as_str()).collect();
+        let prefix_pos = names.iter().position(|n| *n == "map").expect("map present");
+        let substr_pos = names
+            .iter()
+            .position(|n| *n == "flatmap")
+            .expect("flatmap present");
+        assert!(
+            prefix_pos < substr_pos,
+            "prefix match must rank before substring match: {names:?}"
+        );
+    }
+
+    #[test]
+    fn apropos_hits_render_count_and_plurality() {
+        let one = vec![AproposHit {
+            name: "map".into(),
+            summary: "apply a function".into(),
+        }];
+        let out = render_apropos_hits("map", &one);
+        assert!(out.contains("map"), "name missing: {out:?}");
+        assert!(out.contains("(1 match)"), "singular footer wrong: {out:?}");
+
+        let two = vec![
+            AproposHit {
+                name: "map".into(),
+                summary: "a".into(),
+            },
+            AproposHit {
+                name: "mapcat".into(),
+                summary: "b".into(),
+            },
+        ];
+        let out2 = render_apropos_hits("map", &two);
+        assert!(
+            out2.contains("(2 matches)"),
+            "plural footer wrong: {out2:?}"
+        );
+    }
+
+    #[test]
+    fn search_results_render_name_module_and_count() {
+        let hits = vec![sema_mcp::docs_search::SearchHit {
+            name: "string/split".into(),
+            module: "strings".into(),
+            summary: "Split a string by a delimiter".into(),
+            score: 1.0,
+        }];
+        let out = render_search_results("split", &hits);
+        assert!(out.contains("string/split"), "name missing: {out:?}");
+        assert!(out.contains("[strings]"), "module tag missing: {out:?}");
+        assert!(
+            out.contains("Split a string by a delimiter"),
+            "summary missing: {out:?}"
+        );
+        assert!(out.contains("(1 match)"), "count footer wrong: {out:?}");
+    }
+
+    #[test]
+    fn rendered_doc_entry_shows_alias_arrow_and_kind() {
+        let entry = lookup("string-split").expect("alias entry");
+        let out = rendered_doc_entry("string-split", entry);
+        // Alias heading resolves to the canonical name via an arrow.
+        assert!(out.contains("string-split"), "alias name missing: {out:?}");
+        assert!(out.contains('→'), "alias arrow missing: {out:?}");
+        assert!(
+            out.contains("string/split"),
+            "canonical name missing: {out:?}"
+        );
+        assert!(out.contains("builtin"), "kind label missing: {out:?}");
+    }
+
+    #[test]
+    fn rendered_doc_entry_labels_special_form() {
+        let entry = lookup("if").expect("special form entry");
+        let out = rendered_doc_entry("if", entry);
+        assert!(
+            out.contains("special form"),
+            "special-form label missing: {out:?}"
+        );
+    }
 }
