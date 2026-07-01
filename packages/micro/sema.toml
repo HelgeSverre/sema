@@ -1,0 +1,5 @@
+[package]
+name = "sema/micro"
+version = "0.1.0"
+description = "Micro-agents as code."
+entrypoint = "package.sema"
