@@ -81,3 +81,7 @@ crates/sema/tests/e2e-workflow-view/playwright-report/
 out/
 index.db
 .worktrees/
+
+# Maze example output (playground maze-generator writes a relative ./mazes/
+# dir; running it natively from the repo root would otherwise litter the tree)
+/mazes/
