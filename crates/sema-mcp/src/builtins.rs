@@ -164,24 +164,37 @@ fn connect_http(config_json: &serde_json::Value) -> Result<Value, SemaError> {
 
     let mut client = block_on(McpClient::connect_http(McpHttpConfig {
         url: url.to_string(),
-        headers,
+        headers: headers.clone(),
     }))
     .map_err(|err| SemaError::eval(format!("mcp/connect: {err}")))?;
 
     if let Err(err) = block_on(client.initialize()) {
-        // A `401` means the server requires OAuth; run the login flow, attach the
-        // token, and retry. Any other error is fatal.
-        let Some(challenge) = client.http_challenge() else {
+        if let Some(challenge) = client.http_challenge() {
+            // A `401` means the server requires OAuth; run the login flow, attach
+            // the token, and retry.
+            let token = obtain_access_token(url, &challenge, preconfigured_client_id.as_deref())?;
+            client.set_bearer_token(&token);
+            if let Err(err) = block_on(client.initialize()) {
+                let _ = block_on(client.close());
+                return Err(SemaError::eval(format!(
+                    "mcp/connect: handshake failed after authorization: {err}"
+                )));
+            }
+        } else if matches!(client.http_last_status(), Some(404) | Some(405)) {
+            // The Streamable-HTTP POST was rejected — fall back to the deprecated
+            // 2024-11-05 HTTP+SSE transport (POST→4xx→GET-`endpoint`).
+            let _ = block_on(client.close());
+            let mut legacy = block_on(McpClient::connect_legacy_sse(McpHttpConfig {
+                url: url.to_string(),
+                headers,
+            }))
+            .map_err(|e| SemaError::eval(format!("mcp/connect: {e}")))?;
+            block_on(legacy.initialize())
+                .map_err(|e| SemaError::eval(format!("mcp/connect (legacy SSE): {e}")))?;
+            return register_connection(legacy);
+        } else {
             let _ = block_on(client.close());
             return Err(SemaError::eval(format!("mcp/connect: {err}")));
-        };
-        let token = obtain_access_token(url, &challenge, preconfigured_client_id.as_deref())?;
-        client.set_bearer_token(&token);
-        if let Err(err) = block_on(client.initialize()) {
-            let _ = block_on(client.close());
-            return Err(SemaError::eval(format!(
-                "mcp/connect: handshake failed after authorization: {err}"
-            )));
         }
     }
     register_connection(client)

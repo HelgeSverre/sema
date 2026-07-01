@@ -86,6 +86,7 @@ pub struct McpClient {
 enum Transport {
     Stdio(StdioTransport),
     Http(HttpTransport),
+    LegacySse(LegacySseTransport),
 }
 
 impl McpClient {
@@ -106,6 +107,18 @@ impl McpClient {
         let transport = HttpTransport::new(config)?;
         Ok(Self {
             transport: Transport::Http(transport),
+            next_id: 1,
+            timeout: DEFAULT_REQUEST_TIMEOUT,
+        })
+    }
+
+    /// Connect over the deprecated 2024-11-05 HTTP+SSE transport: open the SSE
+    /// stream and read the `endpoint` event that names the POST URL. Does not
+    /// perform the handshake — call [`McpClient::initialize`] next.
+    pub async fn connect_legacy_sse(config: McpHttpConfig) -> Result<Self, String> {
+        let transport = LegacySseTransport::connect(config, DEFAULT_REQUEST_TIMEOUT).await?;
+        Ok(Self {
+            transport: Transport::LegacySse(transport),
             next_id: 1,
             timeout: DEFAULT_REQUEST_TIMEOUT,
         })
@@ -162,6 +175,7 @@ impl McpClient {
         match &mut self.transport {
             Transport::Stdio(t) => t.shutdown().await,
             Transport::Http(t) => t.shutdown().await,
+            Transport::LegacySse(_) => Ok(()),
         }
     }
 
@@ -170,7 +184,16 @@ impl McpClient {
     pub fn http_challenge(&self) -> Option<String> {
         match &self.transport {
             Transport::Http(t) => t.last_challenge.clone(),
-            Transport::Stdio(_) => None,
+            _ => None,
+        }
+    }
+
+    /// The HTTP status code of the most recent request, when it was not a
+    /// success (HTTP transport only) — used to detect a legacy-SSE server.
+    pub fn http_last_status(&self) -> Option<u16> {
+        match &self.transport {
+            Transport::Http(t) => t.last_status,
+            _ => None,
         }
     }
 
@@ -185,7 +208,7 @@ impl McpClient {
     pub fn http_url(&self) -> Option<String> {
         match &self.transport {
             Transport::Http(t) => Some(t.url.clone()),
-            Transport::Stdio(_) => None,
+            _ => None,
         }
     }
 
@@ -203,6 +226,7 @@ impl McpClient {
         match &mut self.transport {
             Transport::Stdio(t) => t.request(id, method, params, self.timeout).await,
             Transport::Http(t) => t.request(id, method, params, self.timeout).await,
+            Transport::LegacySse(t) => t.request(id, method, params, self.timeout).await,
         }
     }
 
@@ -214,6 +238,7 @@ impl McpClient {
         match &mut self.transport {
             Transport::Stdio(t) => t.notify(method, params).await,
             Transport::Http(t) => t.notify(method, params).await,
+            Transport::LegacySse(t) => t.notify(method, params).await,
         }
     }
 }
@@ -431,6 +456,9 @@ struct HttpTransport {
     /// The `WWW-Authenticate` header from the most recent `401`, so the auth
     /// layer can discover where to log in and retry.
     last_challenge: Option<String>,
+    /// The status code of the most recent non-success response, so a caller can
+    /// detect a `404`/`405` that signals a legacy (HTTP+SSE) server.
+    last_status: Option<u16>,
 }
 
 impl HttpTransport {
@@ -448,6 +476,7 @@ impl HttpTransport {
             session_id: None,
             protocol_version: None,
             last_challenge: None,
+            last_status: None,
         })
     }
 
@@ -512,6 +541,7 @@ impl HttpTransport {
         self.capture_session(&response);
 
         let status = response.status();
+        self.last_status = (!status.is_success()).then_some(status.as_u16());
         if status.as_u16() == 404 {
             // Session was terminated/expired; per the spec the client must start
             // a fresh session with a new `initialize`. Surface it so the caller
@@ -669,6 +699,166 @@ impl HttpTransport {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Legacy HTTP+SSE transport (deprecated 2024-11-05 two-endpoint shape)
+// ---------------------------------------------------------------------------
+
+/// The deprecated two-endpoint transport: a long-lived `GET` SSE stream carries
+/// every server→client message, and the client `POST`s requests to a separate
+/// URL announced by the stream's first `endpoint` event. Kept for backwards
+/// compatibility with `2024-11-05` servers.
+struct LegacySseTransport {
+    client: reqwest::Client,
+    base_url: String,
+    post_url: String,
+    headers: HashMap<String, String>,
+    #[allow(clippy::type_complexity)]
+    stream: std::pin::Pin<Box<dyn futures::Stream<Item = Result<Vec<u8>, reqwest::Error>> + Send>>,
+    buffer: String,
+}
+
+impl LegacySseTransport {
+    async fn connect(config: McpHttpConfig, timeout: Duration) -> Result<Self, String> {
+        if config.url.is_empty() {
+            return Err("mcp/connect (legacy sse) requires a non-empty :url".to_string());
+        }
+        let client = reqwest::Client::builder()
+            .build()
+            .map_err(|err| format!("failed to build HTTP client: {err}"))?;
+        let mut builder = client
+            .get(&config.url)
+            .header("Accept", "text/event-stream");
+        for (key, value) in &config.headers {
+            builder = builder.header(key.as_str(), value.as_str());
+        }
+        let response = tokio::time::timeout(timeout, builder.send())
+            .await
+            .map_err(|_| "legacy SSE connect timed out".to_string())?
+            .map_err(|err| format!("legacy SSE GET failed: {err}"))?;
+        if !response.status().is_success() {
+            return Err(format!(
+                "legacy SSE GET returned HTTP {}",
+                response.status().as_u16()
+            ));
+        }
+        let stream = response.bytes_stream().map(|r| r.map(|b| b.to_vec()));
+        let mut transport = Self {
+            client,
+            base_url: config.url.clone(),
+            post_url: String::new(),
+            headers: config.headers,
+            stream: Box::pin(stream),
+            buffer: String::new(),
+        };
+
+        // The first meaningful event names the POST endpoint.
+        loop {
+            let (event, data) = transport.next_event(timeout).await?;
+            if event == "endpoint" {
+                transport.post_url = resolve_url(&transport.base_url, data.trim())?;
+                return Ok(transport);
+            }
+        }
+    }
+
+    async fn request(
+        &mut self,
+        id: i64,
+        method: &str,
+        params: Option<serde_json::Value>,
+        timeout: Duration,
+    ) -> Result<serde_json::Value, String> {
+        let body = encode_request(id, method, params)?;
+        self.post(body).await?;
+        // The response arrives on the shared SSE stream; skip unrelated messages.
+        loop {
+            let (_event, data) = self.next_event(timeout).await?;
+            if let Ok(response) = serde_json::from_str::<JsonRpcResponse>(&data) {
+                if response_matches_id(&response, id) {
+                    return extract_result(response);
+                }
+            }
+        }
+    }
+
+    async fn notify(
+        &mut self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<(), String> {
+        let body = serde_json::to_string(&notification_value(method, params))
+            .map_err(|err| format!("failed to encode MCP notification: {err}"))?;
+        self.post(body).await
+    }
+
+    async fn post(&self, body: String) -> Result<(), String> {
+        let mut builder = self
+            .client
+            .post(&self.post_url)
+            .header("Content-Type", "application/json")
+            .body(body);
+        for (key, value) in &self.headers {
+            builder = builder.header(key.as_str(), value.as_str());
+        }
+        let response = builder
+            .send()
+            .await
+            .map_err(|err| format!("legacy SSE POST failed: {err}"))?;
+        if !response.status().is_success() {
+            return Err(format!(
+                "legacy SSE POST returned HTTP {}",
+                response.status().as_u16()
+            ));
+        }
+        Ok(())
+    }
+
+    /// Read the SSE stream until one complete event, returning its `event` type
+    /// (defaulting to `message`) and joined `data`.
+    async fn next_event(&mut self, timeout: Duration) -> Result<(String, String), String> {
+        let mut event_type = String::new();
+        let mut data_lines: Vec<String> = Vec::new();
+        loop {
+            while let Some(newline) = self.buffer.find('\n') {
+                let line = self.buffer[..newline].trim_end_matches('\r').to_string();
+                self.buffer.drain(..=newline);
+                if line.is_empty() {
+                    if !data_lines.is_empty() || !event_type.is_empty() {
+                        let event = if event_type.is_empty() {
+                            "message".to_string()
+                        } else {
+                            std::mem::take(&mut event_type)
+                        };
+                        return Ok((event, data_lines.join("\n")));
+                    }
+                    continue;
+                }
+                if let Some(rest) = line.strip_prefix("event:") {
+                    event_type = rest.trim().to_string();
+                } else if let Some(rest) = line.strip_prefix("data:") {
+                    data_lines.push(rest.strip_prefix(' ').unwrap_or(rest).to_string());
+                }
+            }
+            let next = tokio::time::timeout(timeout, self.stream.next())
+                .await
+                .map_err(|_| "legacy SSE stream stalled".to_string())?;
+            match next {
+                Some(Ok(chunk)) => self.buffer.push_str(&String::from_utf8_lossy(&chunk)),
+                Some(Err(err)) => return Err(format!("legacy SSE read error: {err}")),
+                None => return Err("legacy SSE stream closed unexpectedly".to_string()),
+            }
+        }
+    }
+}
+
+/// Resolve a possibly-relative `endpoint` value against the SSE URL's origin.
+fn resolve_url(base: &str, target: &str) -> Result<String, String> {
+    let base = url::Url::parse(base).map_err(|e| format!("invalid legacy SSE base URL: {e}"))?;
+    base.join(target)
+        .map(|u| u.to_string())
+        .map_err(|e| format!("could not resolve legacy endpoint `{target}`: {e}"))
 }
 
 /// Interpret an accumulated SSE event's `data` as a JSON-RPC message. Returns
