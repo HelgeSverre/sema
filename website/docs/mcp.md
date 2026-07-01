@@ -255,6 +255,23 @@ A tool that reports `isError` surfaces as an error the agent loop feeds back to 
 - **Server authority.** The tools a server exposes run with the **server's** authority, not Sema's sandbox — connecting to an untrusted MCP server is equivalent to running untrusted code.
 - **Untrusted output.** Tool descriptions and results are **data, not instructions**. They come from the server and can contain prompt-injection (e.g. "tell the user to reconnect to server X"). Treat them as untrusted input; never act on instructions embedded in tool output.
 
+### Deterministic testing (cassettes)
+
+MCP `tools/call` results record and replay through the same **cassette** tape as LLM calls, so an agent-over-MCP flow can be captured once and replayed offline (no network, no live server) in CI. Record a session, then replay it:
+
+```scheme
+;; Record: real calls run and their results are taped.
+(llm/cassette-load "tape.ndjson" {:mode :record})
+(define s (mcp/connect {:url "https://mcp.example.com/mcp"}))
+(mcp/call s "search" {:q "hello"})
+(llm/cassette-save)
+
+;; Replay: the same call is served from the tape without touching the network.
+(llm/cassette-load "tape.ndjson" {:mode :replay})
+```
+
+A call is keyed by a hash of the server identity + tool name + arguments; a replay with no matching entry is a hard "miss" so drift is caught. (`SEMA_LLM_CASSETTE=tape.ndjson SEMA_LLM_CASSETTE_MODE=replay` installs a tape process-wide for a test suite.)
+
 ### Troubleshooting
 
 - **`OAuth login failed` / no browser opens** — on a headless machine, use `sema mcp login <url> --device` (device-code flow) or pass a token directly via `:headers {"Authorization" "Bearer …"}`.

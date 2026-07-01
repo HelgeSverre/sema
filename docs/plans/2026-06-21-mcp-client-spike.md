@@ -10,7 +10,7 @@ RFC 8252 loopback browser flow with `resource=` (RFC 8707), keychain/`0600`-file
 token storage, auto-refresh, RFC 8628 device flow, and a `sema mcp login/logout`
 CLI. Each layer is covered by offline scripted-server tests. **Remaining:** a
 live end-to-end run against a real OAuth-gated provider (needs a human + browser),
-and M5 (MCP-call cassette recording). See the milestones section for detail.
+(the browser flow is exercised end-to-end offline in tests). See the milestones section for detail.
 
 ## Decisions locked (2026-07-01)
 
@@ -456,7 +456,16 @@ agent tests that use MCP tools stay deterministic and offline in CI.
   URL and detect a first `endpoint` SSE event → drive the deprecated two-endpoint
   `2024-11-05` transport. *Acceptance:* headless login works via device flow against
   the test IdP; a `2024-11-05` server connects via the SSE fallback.
-- **M5 — MCP-call cassette recording** (shared format with LLM cassettes).
+- **M5 — MCP-call cassette recording [SHIPPED 2026-07-01].** `tools/call` records
+  and replays through the shared LLM cassette (kind `"mcp-call"`): a crate-neutral
+  hook in `sema-core` (`mcp_cassette_decide`/`record`) bridges `sema-mcp`'s call
+  seam to the `sema-llm` tape without a dependency edge; keyed by
+  `sha256(server-identity + tool + canonical args)`. A replay hit returns the
+  recorded result with no network. *Acceptance met:* record a call, then replay
+  returns it without re-hitting the server (proven by a server-side counter);
+  verified via the Rust gate and the Sema `llm/cassette-load`/`save` builtins.
+  Follow-up: recording `tools/list` + skipping `connect` on replay for a
+  fully-offline agent session (not needed for deterministic call replay).
 - **Convenience features (deferred — riff on after the first PR lands):**
   - **Named/aliased servers** — declare a server once (e.g. a name → `:url`/`:command`
     config, in a script or a config file) and refer to it by name in `mcp/connect`
