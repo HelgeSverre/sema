@@ -52,6 +52,8 @@
 - **Streaming agent turns** — `agent/run` accepts an `:on-text` callback that
   streams the assistant reply token-by-token (in addition to `:on-tool-call`),
   so front-ends can render a reply as it arrives.
+- **`string->bytevector` / `bytevector->string`** — intuitive aliases for
+  `string->utf8` / `utf8->string` (a Sema string encodes to its UTF-8 bytes).
 - **Sema Coder** (`examples/sema-coder/`) — a terminal coding agent written in
   Sema: a full-screen, frame-diffed TUI with a fuzzy `/` command palette, live
   streaming, mouse-wheel scrolling, resize handling, and an extensible
@@ -80,6 +82,10 @@
 - **Archive extraction could silently overwrite.** `zip/extract` / `tar/extract`
   reject two entries that map to the same target; `diff/apply` folds hunk drift
   into its offset; `sys/which` honors `PATHEXT` on Windows.
+- **`sema/check-string` / `sema/check-file` dropped diagnostic detail.** A reader
+  error carrying a hint was wrapped, so the result reported a generic `:code
+  "error"` with no `:span`; it now classifies the root error and returns `:code
+  "syntax"` with the `:span` — important for agent repair loops.
 
 ## 1.28.1
 
