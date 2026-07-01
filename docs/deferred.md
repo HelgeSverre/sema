@@ -279,3 +279,39 @@ Resume from the plan's "Smallest proof-of-concept" section.
 ## A note on the truly long-term language design items
 
 These are not deferred — they're design questions that need a deliberate decision before any code lands. They're tracked in `docs/wip.md` (the "Wave 6c" cluster), not here.
+
+---
+
+## WF-1 — Larger dynamic-workflow work
+
+**Deferred larger dynamic-workflow ideas** that should not be folded into a quick-fix pass. Source discussion: the GitHub issue comment on dynamic workflows — https://github.com/HelgeSverre/sema/issues/41#issuecomment-4815472955. (The core `defworkflow`/`phase`/`step`/`checkpoint`/`parallel`/`pipeline` runtime shipped in 1.28.0; the items below are the next-tier extensions.)
+
+**Manager and subprocess agents**
+- Add a `sema-workflowd`-style manager that owns run lifecycle, scheduling, budgets, retries, cancellation, subprocess supervision, and dashboard serving. Keep it deterministic — it supervises and journals work, it is not an LLM planning loop.
+- Add subprocess agents with a JSONL protocol before sockets (inspectable, replayable, journal-first).
+- Define `defsubagent` (or equivalent) metadata for command, protocol, timeout, sandbox, and compiled-executable agents.
+
+**Run directory format**
+- Snapshot the executed `workflow.sema` and `args.json` into each run directory.
+- Add per-agent folders with `input.json`, `prompt.md`, `events.jsonl`, `stdout.log`, `stderr.log`, `result.json`, and a first-class `artifacts/` path for reports/patches/generated files.
+- Treat the run directory as a stable public format that can be copied to another machine and replayed or inspected later.
+
+**Resume and cache keys**
+- Extend agent cache keys beyond the current workflow source/version, args fingerprint, phase, name, prompt, and schema representation to also include model, system prompt, tool set/version, agent source, and the relevant child sandbox.
+- Decide whether checkpoint keys should include an explicit caller-provided input hash for values that depend on external state.
+- Preserve backward-compatible behavior or provide migration notes when content-key fields change.
+
+**Permissions**
+- Keep `:permissions` as the workflow metadata key.
+- Move beyond CLI sandbox strings toward a structured permission schema (e.g. read-only, test-agent, patch-agent, research-agent profiles); map workflow/agent permissions to child-process sandbox flags and `--allowed-paths`.
+- Consider runtime-level enforcement for in-process workflow calls, not only CLI pre-run interpreter construction.
+
+**Scheduler semantics**
+- Make `parallel` a scheduler primitive with ordered results, independent completion order, bounded concurrency, and configurable fail-fast.
+- Add task/agent handles with `await`, `await-all`, `cancel`, and `status`; make cancellation propagate downward to running child agents.
+- Add `pipeline` as a streaming DAG/barrier-avoidance primitive once `parallel` semantics are settled.
+
+**Dashboard operations**
+- Project `events.jsonl` into the dashboard first; SQLite remains a secondary index.
+- Add operator controls: pause/resume/cancel run, cancel/restart agent, inspect prompt/result/tool-transcript, export report.
+- Prefer SSE over WebSockets for the first live local dashboard stream.
