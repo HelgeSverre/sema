@@ -1,0 +1,41 @@
+;; ============================================================================
+;; packages/micro/package.sema
+;; Micro-agents as code. Bounded collaboration patterns for Sema workflows.
+;; ============================================================================
+
+;; Recipe 1: confidence
+;; Cheap model first, escalate only if needed.
+;;
+;; This is a WORKFLOW-BODY macro. It journals organically via its `step` leaves.
+;; Use it inside a (defworkflow ...) body for full journaling, or at the top level
+;; (which runs the steps but journals nothing).
+;;
+;; (defworkflow escalate-demo
+;;   "Escalate based on confidence"
+;;   {:phases ["Run"]}
+;;   (phase "Run")
+;;   (micro/confidence
+;;     {:models ["ollama/qwen3-coder" "mistral/eu-small" "claude-sonnet-4-6"]
+;;      :threshold 0.82
+;;      :schema {:answer :string :confidence :number}}
+;;     "Answer this support question using the docs."))
+
+(defmacro micro/confidence (config prompt)
+  `(let ((mc-config# ,config)
+        (mc-prompt# ,prompt))
+    (let ((mc-models# (get mc-config# :models))
+          (mc-threshold# (get mc-config# :threshold))
+          (mc-schema# (get mc-config# :schema)))
+      (let loop ((models# mc-models#) (last-valid# nil))
+        (if (empty? models#)
+          last-valid#
+          (let* ((model# (car models#))
+                 (rest-models# (cdr models#))
+                 (candidate#
+                   (step mc-prompt#
+                     {:name (str "confidence:" model#)
+                      :model model#
+                      :schema mc-schema#})))
+            (if (>= (get candidate# :confidence) mc-threshold#)
+              candidate#
+              (loop rest-models# candidate#))))))))
