@@ -3178,6 +3178,8 @@ name = "sema-mcp"
 version = "1.28.1"
 dependencies = [
  "crc32fast",
+ "futures",
+ "reqwest",
  "sema-core",
  "sema-docs",
  "sema-eval",

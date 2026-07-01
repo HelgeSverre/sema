@@ -1,33 +1,39 @@
-//! Minimal MCP *client* over the stdio transport.
+//! MCP *client* transports.
 //!
 //! Sema is primarily an MCP *server* (see `server.rs`); this is the reverse
-//! direction — spawn an external MCP server as a child process and speak
-//! JSON-RPC to it over stdin/stdout so Sema code can consume its tools. It
-//! mirrors `server.rs`'s line-delimited JSON-RPC loop, inverted.
+//! direction — connect to an external MCP server and speak JSON-RPC to it so
+//! Sema code can consume its tools. Two transports live behind one [`McpClient`]:
 //!
-//! Scope is deliberately the stdio transport only (spike milestone M1/M2). The
-//! Streamable-HTTP transport and the OAuth 2.1 login flow for authenticated
-//! remote servers are separate, larger milestones (see
-//! `docs/plans/2026-06-21-mcp-client-spike.md`). For stdio there is no auth
-//! handshake: a server that needs a credential reads it from the environment
-//! Sema hands the child, so pass tokens through the `:env` map on `mcp/connect`.
+//! - **stdio** ([`McpClient::connect`]): spawn the server as a child process and
+//!   exchange line-delimited JSON-RPC over stdin/stdout. No auth handshake — a
+//!   server that needs a credential reads it from the environment Sema hands the
+//!   child, so pass tokens through the `:env` map on `mcp/connect`.
+//! - **Streamable HTTP** ([`McpClient::connect_http`]): POST each JSON-RPC message
+//!   to a remote server's single MCP endpoint; the response is either a single
+//!   JSON object or an SSE stream. Session continuity rides the `Mcp-Session-Id`
+//!   header and the negotiated `MCP-Protocol-Version` header. A caller-supplied
+//!   `:headers` map carries a static bearer token; the full OAuth 2.1 login flow
+//!   for servers that require it is a later milestone (see
+//!   `docs/plans/2026-06-21-mcp-client-spike.md`).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use futures::StreamExt;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse, Tool};
 
-/// How long to wait for a single response line before giving up, so a wedged
-/// server surfaces as an error instead of hanging the calling Sema thread
-/// forever. Generous because a `tools/call` can legitimately be slow.
+/// How long to wait for a single response before giving up, so a wedged server
+/// surfaces as an error instead of hanging the calling Sema thread forever.
+/// Generous because a `tools/call` can legitimately be slow.
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// The MCP protocol revision this client advertises during `initialize`.
-const PROTOCOL_VERSION: &str = "2024-11-05";
+/// The MCP protocol revision this client advertises during `initialize` — the
+/// latest revision we implement (a client SHOULD offer the newest it supports).
+const PROTOCOL_VERSION: &str = "2025-11-25";
 
 /// Spec for launching a stdio MCP server. `env` entries are added to (not
 /// replacing) the inherited environment — the natural place to pass a token a
@@ -51,54 +57,55 @@ impl McpClientConfig {
     }
 }
 
-/// A live connection to a stdio MCP server. Dropping it kills the child.
+/// Spec for connecting to a remote MCP server over Streamable HTTP. `headers`
+/// are attached to every request — the place to pass a caller-supplied bearer
+/// token (`{"Authorization" "Bearer …"}`) until the OAuth flow lands.
+#[derive(Debug, Clone, Default)]
+pub struct McpHttpConfig {
+    pub url: String,
+    pub headers: HashMap<String, String>,
+}
+
+impl McpHttpConfig {
+    pub fn new(url: impl Into<String>) -> Self {
+        Self {
+            url: url.into(),
+            headers: HashMap::new(),
+        }
+    }
+}
+
+/// A live connection to an MCP server. Dropping it terminates the underlying
+/// stdio child (HTTP sessions are best-effort DELETE'd via [`McpClient::close`]).
 pub struct McpClient {
-    child: Child,
-    stdin: ChildStdin,
-    reader: BufReader<ChildStdout>,
+    transport: Transport,
     next_id: i64,
     timeout: Duration,
 }
 
+enum Transport {
+    Stdio(StdioTransport),
+    Http(HttpTransport),
+}
+
 impl McpClient {
-    /// Spawn the server process and wire up its stdio. Does not perform the
+    /// Spawn a stdio server and wire up its stdio. Does not perform the
     /// `initialize` handshake — call [`McpClient::initialize`] next.
     pub async fn connect(config: McpClientConfig) -> Result<Self, String> {
-        let mut command = Command::new(&config.command);
-        command.args(&config.args);
-        if let Some(env) = config.env {
-            for (key, value) in env {
-                command.env(key, value);
-            }
-        }
-        if let Some(cwd) = config.cwd {
-            command.current_dir(cwd);
-        }
-        command.stdin(std::process::Stdio::piped());
-        command.stdout(std::process::Stdio::piped());
-        // Let the server's stderr flow to ours so its diagnostics are visible.
-        command.stderr(std::process::Stdio::inherit());
-
-        let mut child = command.spawn().map_err(|err| {
-            format!(
-                "failed to spawn MCP server process `{}`: {err}",
-                config.command
-            )
-        })?;
-
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| "failed to open MCP server stdin".to_string())?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| "failed to open MCP server stdout".to_string())?;
-
+        let transport = StdioTransport::spawn(config).await?;
         Ok(Self {
-            child,
-            stdin,
-            reader: BufReader::new(stdout),
+            transport: Transport::Stdio(transport),
+            next_id: 1,
+            timeout: DEFAULT_REQUEST_TIMEOUT,
+        })
+    }
+
+    /// Prepare a Streamable-HTTP connection. Does not perform the `initialize`
+    /// handshake — call [`McpClient::initialize`] next.
+    pub async fn connect_http(config: McpHttpConfig) -> Result<Self, String> {
+        let transport = HttpTransport::new(config)?;
+        Ok(Self {
+            transport: Transport::Http(transport),
             next_id: 1,
             timeout: DEFAULT_REQUEST_TIMEOUT,
         })
@@ -152,17 +159,13 @@ impl McpClient {
     }
 
     pub async fn close(&mut self) -> Result<(), String> {
-        self.child
-            .start_kill()
-            .map_err(|err| format!("failed to terminate MCP server process: {err}"))?;
-        self.child
-            .wait()
-            .await
-            .map_err(|err| format!("failed to wait for MCP server process: {err}"))?;
-        Ok(())
+        match &mut self.transport {
+            Transport::Stdio(t) => t.shutdown().await,
+            Transport::Http(t) => t.shutdown().await,
+        }
     }
 
-    /// Send a request and return its result, correlating on the JSON-RPC id.
+    /// Send a request under a fresh JSON-RPC id and return its result.
     async fn request(
         &mut self,
         method: &str,
@@ -173,34 +176,154 @@ impl McpClient {
             .next_id
             .checked_add(1)
             .ok_or_else(|| "MCP request ID overflow".to_string())?;
-
-        let request = JsonRpcRequest {
-            jsonrpc: "2.0".to_string(),
-            method: method.to_string(),
-            params,
-            id: Some(serde_json::Value::Number(serde_json::Number::from(id))),
-        };
-        let line = serde_json::to_string(&request)
-            .map_err(|err| format!("failed to encode MCP request: {err}"))?;
-        self.write_line(&line).await?;
-        self.read_response(id, method).await
+        match &mut self.transport {
+            Transport::Stdio(t) => t.request(id, method, params, self.timeout).await,
+            Transport::Http(t) => t.request(id, method, params, self.timeout).await,
+        }
     }
 
-    /// Send a JSON-RPC notification (no id, no reply). Notifications must omit
-    /// the `id` field entirely, so this is built inline rather than reusing the
-    /// request struct (whose `id` always serializes).
     async fn notify(
         &mut self,
         method: &str,
         params: Option<serde_json::Value>,
     ) -> Result<(), String> {
-        let mut message = serde_json::json!({ "jsonrpc": "2.0", "method": method });
-        if let Some(params) = params {
-            message["params"] = params;
+        match &mut self.transport {
+            Transport::Stdio(t) => t.notify(method, params).await,
+            Transport::Http(t) => t.notify(method, params).await,
         }
-        let line = serde_json::to_string(&message)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// JSON-RPC helpers shared by both transports
+// ---------------------------------------------------------------------------
+
+fn response_matches_id(response: &JsonRpcResponse, expected_id: i64) -> bool {
+    response
+        .id
+        .as_ref()
+        .and_then(|id| id.as_i64())
+        .map(|id| id == expected_id)
+        .unwrap_or(false)
+}
+
+/// Turn a correlated JSON-RPC response into its `result`, mapping an RPC-level
+/// error into an `Err`.
+fn extract_result(response: JsonRpcResponse) -> Result<serde_json::Value, String> {
+    if let Some(error) = response.error {
+        return Err(format!("MCP RPC error {}: {}", error.code, error.message));
+    }
+    response
+        .result
+        .ok_or_else(|| "MCP response did not include a result".to_string())
+}
+
+fn encode_request(
+    id: i64,
+    method: &str,
+    params: Option<serde_json::Value>,
+) -> Result<String, String> {
+    let request = JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        method: method.to_string(),
+        params,
+        id: Some(serde_json::Value::Number(serde_json::Number::from(id))),
+    };
+    serde_json::to_string(&request).map_err(|err| format!("failed to encode MCP request: {err}"))
+}
+
+/// Build a JSON-RPC notification (no `id`). Notifications must omit the `id`
+/// field entirely, so this is built by hand rather than reusing the request
+/// struct (whose `id` always serializes).
+fn notification_value(method: &str, params: Option<serde_json::Value>) -> serde_json::Value {
+    let mut message = serde_json::json!({ "jsonrpc": "2.0", "method": method });
+    if let Some(params) = params {
+        message["params"] = params;
+    }
+    message
+}
+
+// ---------------------------------------------------------------------------
+// stdio transport
+// ---------------------------------------------------------------------------
+
+struct StdioTransport {
+    child: Child,
+    stdin: ChildStdin,
+    reader: BufReader<ChildStdout>,
+}
+
+impl StdioTransport {
+    async fn spawn(config: McpClientConfig) -> Result<Self, String> {
+        let mut command = Command::new(&config.command);
+        command.args(&config.args);
+        if let Some(env) = config.env {
+            for (key, value) in env {
+                command.env(key, value);
+            }
+        }
+        if let Some(cwd) = config.cwd {
+            command.current_dir(cwd);
+        }
+        command.stdin(std::process::Stdio::piped());
+        command.stdout(std::process::Stdio::piped());
+        // Let the server's stderr flow to ours so its diagnostics are visible.
+        command.stderr(std::process::Stdio::inherit());
+
+        let mut child = command.spawn().map_err(|err| {
+            format!(
+                "failed to spawn MCP server process `{}`: {err}",
+                config.command
+            )
+        })?;
+
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "failed to open MCP server stdin".to_string())?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "failed to open MCP server stdout".to_string())?;
+
+        Ok(Self {
+            child,
+            stdin,
+            reader: BufReader::new(stdout),
+        })
+    }
+
+    async fn request(
+        &mut self,
+        id: i64,
+        method: &str,
+        params: Option<serde_json::Value>,
+        timeout: Duration,
+    ) -> Result<serde_json::Value, String> {
+        let line = encode_request(id, method, params)?;
+        self.write_line(&line).await?;
+        self.read_response(id, method, timeout).await
+    }
+
+    async fn notify(
+        &mut self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<(), String> {
+        let line = serde_json::to_string(&notification_value(method, params))
             .map_err(|err| format!("failed to encode MCP notification: {err}"))?;
         self.write_line(&line).await
+    }
+
+    async fn shutdown(&mut self) -> Result<(), String> {
+        self.child
+            .start_kill()
+            .map_err(|err| format!("failed to terminate MCP server process: {err}"))?;
+        self.child
+            .wait()
+            .await
+            .map_err(|err| format!("failed to wait for MCP server process: {err}"))?;
+        Ok(())
     }
 
     async fn write_line(&mut self, line: &str) -> Result<(), String> {
@@ -222,15 +345,16 @@ impl McpClient {
         &mut self,
         expected_id: i64,
         method: &str,
+        timeout: Duration,
     ) -> Result<serde_json::Value, String> {
         loop {
             let mut line = String::new();
-            let read = tokio::time::timeout(self.timeout, self.reader.read_line(&mut line))
+            let read = tokio::time::timeout(timeout, self.reader.read_line(&mut line))
                 .await
                 .map_err(|_| {
                     format!(
                         "MCP server did not respond to `{method}` within {}s",
-                        self.timeout.as_secs()
+                        timeout.as_secs()
                     )
                 })?
                 .map_err(|err| format!("failed to read MCP response: {err}"))?;
@@ -250,30 +374,274 @@ impl McpClient {
                 Err(_) => continue,
             };
 
-            let matches_id = response
-                .id
-                .as_ref()
-                .and_then(|id| id.as_i64())
-                .map(|id| id == expected_id)
-                .unwrap_or(false);
-            if !matches_id {
+            if !response_matches_id(&response, expected_id) {
                 continue;
             }
-
-            if let Some(error) = response.error {
-                return Err(format!("MCP RPC error {}: {}", error.code, error.message));
-            }
-            return response
-                .result
-                .ok_or_else(|| "MCP response did not include a result".to_string());
+            return extract_result(response);
         }
     }
 }
 
-impl Drop for McpClient {
+impl Drop for StdioTransport {
     fn drop(&mut self) {
         // Best-effort: don't leak the child if the handle is dropped without
         // an explicit `close`.
         let _ = self.child.start_kill();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Streamable HTTP transport
+// ---------------------------------------------------------------------------
+
+struct HttpTransport {
+    client: reqwest::Client,
+    url: String,
+    headers: HashMap<String, String>,
+    /// Assigned by the server on the `initialize` response; echoed on every
+    /// subsequent request so the server can associate them with the session.
+    session_id: Option<String>,
+    /// The protocol version negotiated in `InitializeResult`, sent back as the
+    /// `MCP-Protocol-Version` header on all following requests.
+    protocol_version: Option<String>,
+}
+
+impl HttpTransport {
+    fn new(config: McpHttpConfig) -> Result<Self, String> {
+        if config.url.is_empty() {
+            return Err("mcp/connect (http) requires a non-empty :url".to_string());
+        }
+        let client = reqwest::Client::builder()
+            .build()
+            .map_err(|err| format!("failed to build HTTP client: {err}"))?;
+        Ok(Self {
+            client,
+            url: config.url,
+            headers: config.headers,
+            session_id: None,
+            protocol_version: None,
+        })
+    }
+
+    /// Attach the session / protocol-version / caller headers that apply once
+    /// they are known. On the first `initialize` request `session_id` and
+    /// `protocol_version` are still `None`, so nothing session-specific is sent.
+    fn apply_headers(&self, mut builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        if let Some(session_id) = &self.session_id {
+            builder = builder.header("Mcp-Session-Id", session_id);
+        }
+        if let Some(version) = &self.protocol_version {
+            builder = builder.header("MCP-Protocol-Version", version);
+        }
+        for (key, value) in &self.headers {
+            builder = builder.header(key.as_str(), value.as_str());
+        }
+        builder
+    }
+
+    fn capture_session(&mut self, response: &reqwest::Response) {
+        if let Some(value) = response
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|v| v.to_str().ok())
+        {
+            self.session_id = Some(value.to_string());
+        }
+    }
+
+    async fn request(
+        &mut self,
+        id: i64,
+        method: &str,
+        params: Option<serde_json::Value>,
+        timeout: Duration,
+    ) -> Result<serde_json::Value, String> {
+        let body = encode_request(id, method, params)?;
+        let builder = self
+            .client
+            .post(&self.url)
+            .header("Accept", "application/json, text/event-stream")
+            .header("Content-Type", "application/json")
+            .body(body);
+        let builder = self.apply_headers(builder);
+
+        let response = tokio::time::timeout(timeout, builder.send())
+            .await
+            .map_err(|_| {
+                format!(
+                    "MCP server did not respond to `{method}` within {}s",
+                    timeout.as_secs()
+                )
+            })?
+            .map_err(|err| format!("failed to send MCP request: {err}"))?;
+
+        self.capture_session(&response);
+
+        let status = response.status();
+        if status.as_u16() == 404 {
+            // Session was terminated/expired; per the spec the client must start
+            // a fresh session with a new `initialize`. Surface it so the caller
+            // reconnects rather than silently retrying against a dead session.
+            return Err(format!(
+                "MCP session expired (HTTP 404) on `{method}`; reconnect required"
+            ));
+        }
+        if !status.is_success() {
+            let detail = response.text().await.unwrap_or_default();
+            return Err(format!(
+                "MCP server returned HTTP {} on `{method}`: {}",
+                status.as_u16(),
+                detail.trim()
+            ));
+        }
+
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+
+        let result = if content_type.contains("text/event-stream") {
+            self.read_sse_response(response, id, timeout).await?
+        } else {
+            let text = response
+                .text()
+                .await
+                .map_err(|err| format!("failed to read MCP response body: {err}"))?;
+            let response: JsonRpcResponse = serde_json::from_str(text.trim())
+                .map_err(|err| format!("failed to decode MCP response: {err}"))?;
+            if !response_matches_id(&response, id) {
+                return Err(format!(
+                    "MCP response id mismatch on `{method}` (expected {id})"
+                ));
+            }
+            extract_result(response)?
+        };
+
+        // Record the negotiated protocol version so it rides subsequent requests.
+        if method == "initialize" {
+            if let Some(version) = result.get("protocolVersion").and_then(|v| v.as_str()) {
+                self.protocol_version = Some(version.to_string());
+            }
+        }
+        Ok(result)
+    }
+
+    async fn notify(
+        &mut self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<(), String> {
+        let body = serde_json::to_string(&notification_value(method, params))
+            .map_err(|err| format!("failed to encode MCP notification: {err}"))?;
+        let builder = self
+            .client
+            .post(&self.url)
+            .header("Accept", "application/json, text/event-stream")
+            .header("Content-Type", "application/json")
+            .body(body);
+        let builder = self.apply_headers(builder);
+
+        let response = builder
+            .send()
+            .await
+            .map_err(|err| format!("failed to send MCP notification: {err}"))?;
+        self.capture_session(&response);
+        let status = response.status();
+        // A notification is accepted with `202 Accepted` (no body); tolerate any
+        // 2xx in case a server answers `200`.
+        if !status.is_success() {
+            let detail = response.text().await.unwrap_or_default();
+            return Err(format!(
+                "MCP server rejected notification `{method}`: HTTP {} {}",
+                status.as_u16(),
+                detail.trim()
+            ));
+        }
+        Ok(())
+    }
+
+    async fn shutdown(&mut self) -> Result<(), String> {
+        // Best-effort session teardown: DELETE with the session id. A server that
+        // doesn't allow client-driven termination answers `405`, which is fine.
+        if self.session_id.is_some() {
+            let builder = self.client.delete(&self.url);
+            let builder = self.apply_headers(builder);
+            let _ = builder.send().await;
+        }
+        Ok(())
+    }
+
+    /// Read the POST-initiated SSE stream until the JSON-RPC response correlated
+    /// to `expected_id` arrives, ignoring any interleaved server→client
+    /// notifications/requests the server may emit before it.
+    async fn read_sse_response(
+        &mut self,
+        response: reqwest::Response,
+        expected_id: i64,
+        timeout: Duration,
+    ) -> Result<serde_json::Value, String> {
+        let mut stream = response.bytes_stream();
+        let mut buffer = String::new();
+        let mut data_lines: Vec<String> = Vec::new();
+
+        loop {
+            let next = tokio::time::timeout(timeout, stream.next())
+                .await
+                .map_err(|_| {
+                    format!("MCP SSE stream stalled waiting for response id {expected_id}")
+                })?;
+            let Some(chunk) = next else {
+                // Stream ended. Give any un-terminated trailing event one last
+                // chance before declaring the response missing.
+                if let Some(result) = try_take_sse_event(&mut data_lines, expected_id)? {
+                    return Ok(result);
+                }
+                return Err("MCP SSE stream ended before the response arrived".to_string());
+            };
+            let chunk = chunk.map_err(|err| format!("failed to read MCP SSE stream: {err}"))?;
+            buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+            while let Some(newline) = buffer.find('\n') {
+                let line = buffer[..newline].trim_end_matches('\r').to_string();
+                buffer.drain(..=newline);
+
+                if line.is_empty() {
+                    // Event boundary — try to correlate the accumulated data.
+                    if let Some(result) = try_take_sse_event(&mut data_lines, expected_id)? {
+                        return Ok(result);
+                    }
+                    continue;
+                }
+                if let Some(rest) = line.strip_prefix("data:") {
+                    // A `data:` value may have a single leading space per the SSE grammar.
+                    data_lines.push(rest.strip_prefix(' ').unwrap_or(rest).to_string());
+                }
+                // `id:` / `event:` / `retry:` / comment lines are ignored for now;
+                // event-id resumption (`Last-Event-ID`) is a later refinement.
+            }
+        }
+    }
+}
+
+/// Interpret an accumulated SSE event's `data` as a JSON-RPC message. Returns
+/// `Ok(Some(result))` when it is the correlated response, `Ok(None)` when it is
+/// an unrelated message to skip, and `Err` for an RPC-level error on our id.
+fn try_take_sse_event(
+    data_lines: &mut Vec<String>,
+    expected_id: i64,
+) -> Result<Option<serde_json::Value>, String> {
+    if data_lines.is_empty() {
+        return Ok(None);
+    }
+    let data = std::mem::take(data_lines).join("\n");
+    match serde_json::from_str::<JsonRpcResponse>(&data) {
+        Ok(response) if response_matches_id(&response, expected_id) => {
+            extract_result(response).map(Some)
+        }
+        // A server->client notification/request, or a response for a different
+        // id — not ours; keep reading.
+        _ => Ok(None),
     }
 }

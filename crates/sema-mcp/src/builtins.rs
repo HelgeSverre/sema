@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use sema_core::{check_arity, Caps, Env, NativeFn, Sandbox, SemaError, ToolDefinition, Value};
 use tokio::runtime::Runtime;
 
-use crate::client::{McpClient, McpClientConfig};
+use crate::client::{McpClient, McpClientConfig, McpHttpConfig};
 
 thread_local! {
     // Keep MCP connections in a thread-local map so each Sema evaluator can own its own
@@ -67,25 +67,104 @@ fn register_fn(env: &Env, name: &str, f: impl Fn(&[Value]) -> Result<Value, Sema
     env.set_str(name, Value::native_fn(NativeFn::simple(name, f)));
 }
 
-/// Register a builtin that is refused unless `cap` is granted (mirrors
-/// `sema_stdlib`'s `register_fn_gated`). Unrestricted sandboxes skip the check.
-fn register_fn_gated(
-    env: &Env,
-    sandbox: &Sandbox,
-    cap: Caps,
-    name: &str,
-    f: impl Fn(&[Value]) -> Result<Value, SemaError> + 'static,
-) {
-    if sandbox.is_unrestricted() {
-        register_fn(env, name, f);
-    } else {
-        let sandbox = sandbox.clone();
-        let fn_name = name.to_string();
-        register_fn(env, name, move |args| {
-            sandbox.check(cap, &fn_name)?;
-            f(args)
-        });
+/// Refuse a `mcp/connect` unless `cap` is granted. Unrestricted sandboxes pass.
+fn gate(sandbox: &Sandbox, cap: Caps) -> Result<(), SemaError> {
+    if !sandbox.is_unrestricted() {
+        sandbox.check(cap, "mcp/connect")?;
     }
+    Ok(())
+}
+
+/// Register a live connection under a fresh opaque handle and return the handle.
+fn register_connection(client: McpClient) -> Result<Value, SemaError> {
+    let handle = next_handle();
+    let connection = Rc::new(RefCell::new(McpConnection { client }));
+    CONNECTIONS.with(|connections| {
+        connections.borrow_mut().insert(handle.clone(), connection);
+    });
+    Ok(Value::string(&handle))
+}
+
+/// Connect to a stdio MCP server (`:command` + optional `:args`/`:env`/`:cwd`),
+/// run the handshake, and register the connection.
+fn connect_stdio(config_json: &serde_json::Value) -> Result<Value, SemaError> {
+    let command = config_json
+        .get("command")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| {
+            SemaError::eval("mcp/connect requires a :command (stdio) or :url (http) entry")
+                .with_hint(
+                    "stdio: {:command \"python3\" :args [\"-c\" \"script\"]}; \
+                     http: {:url \"https://…/mcp\"}",
+                )
+        })?;
+    let args_vec = config_json
+        .get("args")
+        .and_then(|value| value.as_array())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let env_map = config_json
+        .get("env")
+        .and_then(|value| value.as_object())
+        .map(|object| {
+            object
+                .iter()
+                .filter_map(|(key, value)| value.as_str().map(|s| (key.to_string(), s.to_string())))
+                .collect::<HashMap<_, _>>()
+        })
+        .unwrap_or_default();
+    let cwd = config_json
+        .get("cwd")
+        .and_then(|value| value.as_str())
+        .map(std::path::PathBuf::from);
+
+    let mut client = block_on(McpClient::connect(McpClientConfig {
+        command: command.to_string(),
+        args: args_vec,
+        env: (!env_map.is_empty()).then_some(env_map),
+        cwd,
+    }))
+    .map_err(|err| SemaError::eval(format!("mcp/connect: {err}")))?;
+    if let Err(err) = block_on(client.initialize()) {
+        let _ = block_on(client.close());
+        return Err(SemaError::eval(format!("mcp/connect: {err}")));
+    }
+    register_connection(client)
+}
+
+/// Connect to a remote Streamable-HTTP MCP server (`:url` + optional
+/// `:headers`), run the handshake, and register the connection.
+fn connect_http(config_json: &serde_json::Value) -> Result<Value, SemaError> {
+    let url = config_json
+        .get("url")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| SemaError::eval("mcp/connect requires a :url entry for http transport"))?;
+    let headers = config_json
+        .get("headers")
+        .and_then(|value| value.as_object())
+        .map(|object| {
+            object
+                .iter()
+                .filter_map(|(key, value)| value.as_str().map(|s| (key.to_string(), s.to_string())))
+                .collect::<HashMap<_, _>>()
+        })
+        .unwrap_or_default();
+
+    let mut client = block_on(McpClient::connect_http(McpHttpConfig {
+        url: url.to_string(),
+        headers,
+    }))
+    .map_err(|err| SemaError::eval(format!("mcp/connect: {err}")))?;
+    if let Err(err) = block_on(client.initialize()) {
+        let _ = block_on(client.close());
+        return Err(SemaError::eval(format!("mcp/connect: {err}")));
+    }
+    register_connection(client)
 }
 
 fn config_to_json(args: &[Value]) -> Result<serde_json::Value, SemaError> {
@@ -213,61 +292,23 @@ fn schema_to_params(schema: &serde_json::Value) -> (Value, Vec<String>) {
 }
 
 pub fn register_mcp_builtins(env: &Env, sandbox: &Sandbox) {
-    register_fn_gated(env, sandbox, Caps::PROCESS, "mcp/connect", |args| {
-        let config_json = config_to_json(args)?;
-        let command = config_json
-            .get("command")
-            .and_then(|value| value.as_str())
-            .ok_or_else(|| {
-                SemaError::eval("mcp/connect requires a :command entry for stdio transport")
-                    .with_hint("use {:command \"python3\" :args [\"-c\" \"script\"]}")
-            })?;
-        let args_vec = config_json
-            .get("args")
-            .and_then(|value| value.as_array())
-            .map(|values| {
-                values
-                    .iter()
-                    .filter_map(|value| value.as_str().map(str::to_string))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let env_map = config_json
-            .get("env")
-            .and_then(|value| value.as_object())
-            .map(|object| {
-                object
-                    .iter()
-                    .filter_map(|(key, value)| {
-                        value.as_str().map(|s| (key.to_string(), s.to_string()))
-                    })
-                    .collect::<HashMap<_, _>>()
-            })
-            .unwrap_or_default();
-        let cwd = config_json
-            .get("cwd")
-            .and_then(|value| value.as_str())
-            .map(std::path::PathBuf::from);
-
-        let mut client = block_on(McpClient::connect(McpClientConfig {
-            command: command.to_string(),
-            args: args_vec,
-            env: (!env_map.is_empty()).then_some(env_map),
-            cwd,
-        }))
-        .map_err(|err| SemaError::eval(format!("mcp/connect: {err}")))?;
-        if let Err(err) = block_on(client.initialize()) {
-            let _ = block_on(client.close());
-            return Err(SemaError::eval(format!("mcp/connect: {err}")));
-        }
-
-        let handle = next_handle();
-        let connection = Rc::new(RefCell::new(McpConnection { client }));
-        CONNECTIONS.with(|connections| {
-            connections.borrow_mut().insert(handle.clone(), connection);
+    // `mcp/connect` picks its transport from the config map at runtime, so the
+    // capability it needs is not fixed: a `:url` server is network I/O
+    // (`NETWORK`), a `:command` server spawns a process (`PROCESS`). Gate inside
+    // the handler rather than via a single fixed-capability wrapper.
+    {
+        let sandbox = sandbox.clone();
+        register_fn(env, "mcp/connect", move |args| {
+            let config_json = config_to_json(args)?;
+            if config_json.get("url").and_then(|v| v.as_str()).is_some() {
+                gate(&sandbox, Caps::NETWORK)?;
+                connect_http(&config_json)
+            } else {
+                gate(&sandbox, Caps::PROCESS)?;
+                connect_stdio(&config_json)
+            }
         });
-        Ok(Value::string(&handle))
-    });
+    }
 
     register_fn(env, "mcp/tools", |args| {
         check_arity!(args, "mcp/tools", 1);
