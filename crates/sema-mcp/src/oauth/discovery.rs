@@ -27,7 +27,11 @@ pub fn parse_www_authenticate(header: &str) -> WwwAuthenticate {
     let mut out = WwwAuthenticate::default();
     // Drop the leading scheme token (`Bearer`) if present, then split the
     // comma-separated `key="value"` / `key=value` auth-params.
-    let params = header.trim().strip_prefix("Bearer").unwrap_or(header).trim();
+    let params = header
+        .trim()
+        .strip_prefix("Bearer")
+        .unwrap_or(header)
+        .trim();
     for part in params.split(',') {
         let Some((key, value)) = part.split_once('=') else {
             continue;
@@ -182,7 +186,12 @@ async fn fetch_first_json<T: serde::de::DeserializeOwned>(
 ) -> Result<T, String> {
     let mut last_err = format!("no {what} URL candidates");
     for url in candidates {
-        match client.get(url).header("Accept", "application/json").send().await {
+        match client
+            .get(url)
+            .header("Accept", "application/json")
+            .send()
+            .await
+        {
             Ok(resp) if resp.status().is_success() => match resp.json::<T>().await {
                 Ok(value) => return Ok(value),
                 Err(err) => last_err = format!("{what} at {url} did not decode: {err}"),

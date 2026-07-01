@@ -147,8 +147,7 @@ impl TokenStore for FileStore {
 
     fn save(&self, creds: &StoredCredentials) -> Result<(), String> {
         let mut doc = self.read_doc();
-        doc.servers
-            .insert(creds.server_url.clone(), creds.clone());
+        doc.servers.insert(creds.server_url.clone(), creds.clone());
         self.write_doc(&doc)
     }
 
@@ -191,8 +190,8 @@ impl TokenStore for KeychainStore {
     fn save(&self, creds: &StoredCredentials) -> Result<(), String> {
         let entry = keyring::Entry::new(KEYCHAIN_SERVICE, &creds.server_url)
             .map_err(|e| format!("keychain entry error: {e}"))?;
-        let json =
-            serde_json::to_string(creds).map_err(|e| format!("failed to encode credentials: {e}"))?;
+        let json = serde_json::to_string(creds)
+            .map_err(|e| format!("failed to encode credentials: {e}"))?;
         entry
             .set_password(&json)
             .map_err(|e| format!("keychain write error: {e}"))
@@ -319,7 +318,10 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let store = FileStore::new(temp_path());
         store.save(&sample("https://mcp.example.com/mcp")).unwrap();
-        let mode = std::fs::metadata(store.path()).unwrap().permissions().mode();
+        let mode = std::fs::metadata(store.path())
+            .unwrap()
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o777, 0o600, "token file must be owner-only");
     }
 

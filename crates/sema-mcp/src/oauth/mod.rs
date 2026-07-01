@@ -13,6 +13,9 @@
 //! so nothing depends on `oauth2`'s (reqwest-0.12) built-in client.
 
 pub mod discovery;
+pub mod flow;
+pub mod login;
+pub mod loopback;
 pub mod store;
 
 use oauth2::{CsrfToken, PkceCodeChallenge, PkceCodeVerifier};
@@ -53,7 +56,11 @@ mod tests {
         let s = new_pkce_session();
         assert_eq!(s.challenge_method, "S256");
         // RFC 7636: the verifier is 43–128 chars from the unreserved set.
-        assert!((43..=128).contains(&s.verifier.len()), "verifier len {}", s.verifier.len());
+        assert!(
+            (43..=128).contains(&s.verifier.len()),
+            "verifier len {}",
+            s.verifier.len()
+        );
         assert!(!s.challenge.is_empty());
         assert!(!s.state.is_empty());
         // Two sessions must not collide (random verifier + state).

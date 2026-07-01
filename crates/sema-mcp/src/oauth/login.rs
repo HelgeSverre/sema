@@ -1,0 +1,165 @@
+//! End-to-end OAuth login orchestration: discover → obtain a client_id →
+//! authorization-code + PKCE → tokens. Ties together `discovery`, `flow`, and a
+//! [`RedirectDriver`] (loopback browser or device/paste). The result is a
+//! [`StoredCredentials`] the caller persists and attaches to MCP requests.
+
+use super::discovery::{self, AuthorizationServerMetadata, ProtectedResourceMetadata};
+use super::loopback::RedirectDriver;
+use super::store::{ClientInfo, StoredCredentials, TokenSet};
+use super::{flow, new_pkce_session};
+
+/// Inputs for a login attempt against one MCP server.
+pub struct LoginConfig<'a> {
+    /// The MCP server endpoint URL (`:url`).
+    pub mcp_url: &'a str,
+    /// The `resource_metadata` URL advertised by the server's `401`, if any.
+    pub resource_metadata_url: Option<&'a str>,
+    /// The `scope` advertised by the `401` (authoritative when present).
+    pub requested_scope: Option<&'a str>,
+    /// A pre-registered client_id the user configured (`:auth {:client-id …}`).
+    pub preconfigured_client_id: Option<&'a str>,
+}
+
+/// The discovery outcome, cached so refresh/re-scope can skip re-probing.
+#[derive(Debug, Clone)]
+pub struct Discovered {
+    pub resource: String,
+    pub protected_resource: ProtectedResourceMetadata,
+    pub authorization_server: AuthorizationServerMetadata,
+}
+
+/// Walk the metadata chain: PRM (RFC 9728) → AS metadata (RFC 8414/OIDC), and
+/// enforce the PKCE-S256 gate.
+pub async fn discover(
+    client: &reqwest::Client,
+    config: &LoginConfig<'_>,
+) -> Result<Discovered, String> {
+    let prm = discovery::fetch_protected_resource_metadata(
+        client,
+        config.mcp_url,
+        config.resource_metadata_url,
+    )
+    .await?;
+    let issuer = prm
+        .authorization_servers
+        .first()
+        .ok_or_else(|| "protected resource metadata lists no authorization servers".to_string())?
+        .clone();
+    let as_meta = discovery::fetch_authorization_server_metadata(client, &issuer).await?;
+    if !as_meta.supports_pkce_s256() {
+        return Err(format!(
+            "authorization server `{issuer}` does not advertise PKCE S256 support; refusing to proceed"
+        ));
+    }
+    Ok(Discovered {
+        resource: prm.resource.clone(),
+        protected_resource: prm,
+        authorization_server: as_meta,
+    })
+}
+
+/// Resolve the client_id: a pre-configured one, an existing DCR registration, or
+/// a fresh Dynamic Client Registration.
+async fn resolve_client(
+    client: &reqwest::Client,
+    config: &LoginConfig<'_>,
+    discovered: &Discovered,
+    existing: Option<ClientInfo>,
+    redirect_uri: &str,
+) -> Result<ClientInfo, String> {
+    if let Some(id) = config.preconfigured_client_id {
+        return Ok(ClientInfo {
+            client_id: id.to_string(),
+            client_secret: None,
+        });
+    }
+    if let Some(info) = existing {
+        return Ok(info);
+    }
+    let registration_endpoint = discovered
+        .authorization_server
+        .registration_endpoint
+        .as_deref()
+        .ok_or_else(|| {
+            "server requires a pre-registered client (no dynamic registration endpoint); \
+             pass :auth {:client-id \"…\"}"
+                .to_string()
+        })?;
+    flow::register_client(
+        client,
+        registration_endpoint,
+        redirect_uri,
+        "Sema MCP client",
+    )
+    .await
+}
+
+/// The scopes to request: the `401` challenge scope wins; else the PRM
+/// `scopes_supported`; else none.
+fn resolve_scopes(config: &LoginConfig<'_>, discovered: &Discovered) -> Vec<String> {
+    if let Some(scope) = config.requested_scope {
+        let scopes: Vec<String> = scope.split_whitespace().map(String::from).collect();
+        if !scopes.is_empty() {
+            return scopes;
+        }
+    }
+    discovered.protected_resource.scopes_supported.clone()
+}
+
+/// Run the full login and return persistable credentials.
+pub async fn login(
+    client: &reqwest::Client,
+    config: &LoginConfig<'_>,
+    existing_client_info: Option<ClientInfo>,
+    redirect: &dyn RedirectDriver,
+) -> Result<StoredCredentials, String> {
+    let discovered = discover(client, config).await?;
+    let redirect_uri = redirect.redirect_uri();
+    let client_info = resolve_client(
+        client,
+        config,
+        &discovered,
+        existing_client_info,
+        &redirect_uri,
+    )
+    .await?;
+    let scopes = resolve_scopes(config, &discovered);
+
+    let pkce = new_pkce_session();
+    let authorize_url = flow::build_authorize_url(
+        &discovered.authorization_server.authorization_endpoint,
+        &client_info.client_id,
+        &redirect_uri,
+        &pkce.challenge,
+        &pkce.state,
+        &scopes,
+        &discovered.resource,
+    )?;
+
+    // Blocking browser leg (opens the browser + captures the loopback redirect).
+    let code = redirect.drive(&authorize_url, &pkce.state)?;
+
+    let token = flow::exchange_code(
+        client,
+        &discovered.authorization_server.token_endpoint,
+        &client_info.client_id,
+        client_info.client_secret.as_deref(),
+        &code,
+        &redirect_uri,
+        &pkce.verifier,
+        &discovered.resource,
+    )
+    .await?;
+
+    Ok(StoredCredentials {
+        server_url: config.mcp_url.to_string(),
+        tokens: TokenSet::from_response(
+            token.access_token,
+            token.refresh_token,
+            token.expires_in,
+            token.scope,
+            super::store::now_unix(),
+        ),
+        client_info: Some(client_info),
+    })
+}
