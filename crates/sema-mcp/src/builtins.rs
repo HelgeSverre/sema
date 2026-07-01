@@ -39,6 +39,9 @@ static HANDLE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 struct McpConnection {
     client: McpClient,
+    /// Stable server identity (url, or `stdio\0command args`) used to key the
+    /// cassette so tool calls record/replay deterministically across runs.
+    identity: String,
 }
 
 fn block_on<F: Future>(future: F) -> F::Output {
@@ -76,9 +79,9 @@ fn gate(sandbox: &Sandbox, cap: Caps) -> Result<(), SemaError> {
 }
 
 /// Register a live connection under a fresh opaque handle and return the handle.
-fn register_connection(client: McpClient) -> Result<Value, SemaError> {
+fn register_connection(client: McpClient, identity: String) -> Result<Value, SemaError> {
     let handle = next_handle();
-    let connection = Rc::new(RefCell::new(McpConnection { client }));
+    let connection = Rc::new(RefCell::new(McpConnection { client, identity }));
     CONNECTIONS.with(|connections| {
         connections.borrow_mut().insert(handle.clone(), connection);
     });
@@ -123,6 +126,7 @@ fn connect_stdio(config_json: &serde_json::Value) -> Result<Value, SemaError> {
         .and_then(|value| value.as_str())
         .map(std::path::PathBuf::from);
 
+    let identity = format!("stdio\0{command}\0{}", args_vec.join(" "));
     let mut client = block_on(McpClient::connect(McpClientConfig {
         command: command.to_string(),
         args: args_vec,
@@ -134,7 +138,7 @@ fn connect_stdio(config_json: &serde_json::Value) -> Result<Value, SemaError> {
         let _ = block_on(client.close());
         return Err(SemaError::eval(format!("mcp/connect: {err}")));
     }
-    register_connection(client)
+    register_connection(client, identity)
 }
 
 /// Connect to a remote Streamable-HTTP MCP server (`:url` + optional
@@ -199,7 +203,7 @@ fn connect_http(config_json: &serde_json::Value) -> Result<Value, SemaError> {
             return Err(SemaError::eval(format!("mcp/connect: {err}")));
         }
     }
-    register_connection(client)
+    register_connection(client, url.to_string())
 }
 
 /// Connect over the deprecated 2024-11-05 HTTP+SSE transport. `headers` carries
@@ -213,7 +217,7 @@ fn connect_legacy(url: &str, headers: HashMap<String, String>) -> Result<Value, 
     .map_err(|e| SemaError::eval(format!("mcp/connect: {e}")))?;
     block_on(legacy.initialize())
         .map_err(|e| SemaError::eval(format!("mcp/connect (legacy SSE): {e}")))?;
-    register_connection(legacy)
+    register_connection(legacy, url.to_string())
 }
 
 /// Run (or reuse) the OAuth login for a remote server that answered `401`, and
@@ -289,13 +293,58 @@ fn lookup_connection(handle: &str) -> Result<Rc<RefCell<McpConnection>>, SemaErr
     })
 }
 
+/// Cassette key for one MCP `tools/call`: a hash of the server identity + tool +
+/// (canonical) arguments. Stable across runs so record/replay correlate.
+fn cassette_key(identity: &str, tool: &str, args: &serde_json::Value) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(b"mcp-call\0");
+    hasher.update(identity.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(tool.as_bytes());
+    hasher.update(b"\0");
+    // serde_json serializes object keys sorted (BTreeMap) → deterministic.
+    hasher.update(serde_json::to_string(args).unwrap_or_default().as_bytes());
+    format!("mcp-{:x}", hasher.finalize())
+}
+
+/// Invoke a tool, routing through the cassette when one is active: a replay hit
+/// returns the recorded result without touching the network; otherwise the real
+/// call runs and its result is recorded.
 fn call_tool_via_connection(
     handle: &str,
     tool_name: &str,
     arguments_json: serde_json::Value,
 ) -> Result<serde_json::Value, SemaError> {
     let connection = lookup_connection(handle)?;
+    let key = cassette_key(&connection.borrow().identity, tool_name, &arguments_json);
 
+    match sema_core::mcp_cassette_decide(&key) {
+        Some(sema_core::McpCassetteDecision::Replay(recorded)) => return Ok(recorded),
+        Some(sema_core::McpCassetteDecision::Miss) => {
+            return Err(SemaError::eval(
+                "mcp/call: no cassette recording for this call (replay miss)".to_string(),
+            )
+            .with_hint(
+                "re-record the tape with SEMA_LLM_CASSETTE_MODE=record, or the call arguments \
+                 drifted from what was recorded",
+            ));
+        }
+        // Record mode or no cassette → perform the real call, then record it.
+        _ => {}
+    }
+
+    let result = call_tool_real(&connection, tool_name, arguments_json)?;
+    sema_core::mcp_cassette_record(&key, &result);
+    Ok(result)
+}
+
+/// The real (network) tool call, with one mid-session re-auth retry.
+fn call_tool_real(
+    connection: &Rc<RefCell<McpConnection>>,
+    tool_name: &str,
+    arguments_json: serde_json::Value,
+) -> Result<serde_json::Value, SemaError> {
     let first = {
         let mut conn = connection.borrow_mut();
         block_on(conn.client.call_tool(tool_name, arguments_json.clone()))
