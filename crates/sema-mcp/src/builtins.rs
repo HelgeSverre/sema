@@ -155,16 +155,73 @@ fn connect_http(config_json: &serde_json::Value) -> Result<Value, SemaError> {
         })
         .unwrap_or_default();
 
+    // A user-configured pre-registered client id: `:auth {:client-id "…"}`.
+    let preconfigured_client_id = config_json
+        .get("auth")
+        .and_then(|auth| auth.get("client-id"))
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+
     let mut client = block_on(McpClient::connect_http(McpHttpConfig {
         url: url.to_string(),
         headers,
     }))
     .map_err(|err| SemaError::eval(format!("mcp/connect: {err}")))?;
+
     if let Err(err) = block_on(client.initialize()) {
-        let _ = block_on(client.close());
-        return Err(SemaError::eval(format!("mcp/connect: {err}")));
+        // A `401` means the server requires OAuth; run the login flow, attach the
+        // token, and retry. Any other error is fatal.
+        let Some(challenge) = client.http_challenge() else {
+            let _ = block_on(client.close());
+            return Err(SemaError::eval(format!("mcp/connect: {err}")));
+        };
+        let token = obtain_access_token(url, &challenge, preconfigured_client_id.as_deref())?;
+        client.set_bearer_token(&token);
+        if let Err(err) = block_on(client.initialize()) {
+            let _ = block_on(client.close());
+            return Err(SemaError::eval(format!(
+                "mcp/connect: handshake failed after authorization: {err}"
+            )));
+        }
     }
     register_connection(client)
+}
+
+/// Run (or reuse) the OAuth login for a remote server that answered `401`, and
+/// return an access token. Uses the default credential store (keychain or file)
+/// and a real loopback + system-browser flow.
+fn obtain_access_token(
+    url: &str,
+    challenge_header: &str,
+    preconfigured_client_id: Option<&str>,
+) -> Result<String, SemaError> {
+    use crate::oauth::{discovery, login, loopback, store};
+
+    let challenge = discovery::parse_www_authenticate(challenge_header);
+    let http = reqwest::Client::new();
+    let credential_store = store::default_store();
+    let driver = loopback::LoopbackDriver::new(std::time::Duration::from_secs(300))
+        .map_err(|e| SemaError::eval(format!("mcp/connect: {e}")))?;
+
+    let config = login::LoginConfig {
+        mcp_url: url,
+        resource_metadata_url: challenge.resource_metadata.as_deref(),
+        requested_scope: challenge.scope.as_deref(),
+        preconfigured_client_id,
+    };
+
+    block_on(login::ensure_access_token(
+        &http,
+        credential_store.as_ref(),
+        &config,
+        &driver,
+    ))
+    .map_err(|e| {
+        SemaError::eval(format!("mcp/connect: OAuth login failed: {e}")).with_hint(
+            "a browser should have opened to complete login; or pass a token via \
+             :headers {\"Authorization\" \"Bearer …\"}",
+        )
+    })
 }
 
 fn config_to_json(args: &[Value]) -> Result<serde_json::Value, SemaError> {

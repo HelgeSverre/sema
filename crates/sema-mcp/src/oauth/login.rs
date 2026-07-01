@@ -5,8 +5,12 @@
 
 use super::discovery::{self, AuthorizationServerMetadata, ProtectedResourceMetadata};
 use super::loopback::RedirectDriver;
-use super::store::{ClientInfo, StoredCredentials, TokenSet};
+use super::store::{now_unix, ClientInfo, StoredCredentials, TokenSet, TokenStore};
 use super::{flow, new_pkce_session};
+
+/// Seconds of clock skew to treat a token as already expired before its
+/// nominal expiry, so we refresh proactively rather than mid-request.
+const EXPIRY_SKEW_SECS: u64 = 60;
 
 /// Inputs for a login attempt against one MCP server.
 pub struct LoginConfig<'a> {
@@ -158,8 +162,76 @@ pub async fn login(
             token.refresh_token,
             token.expires_in,
             token.scope,
-            super::store::now_unix(),
+            now_unix(),
         ),
         client_info: Some(client_info),
     })
+}
+
+/// Refresh an access token with the stored refresh token (re-discovering the
+/// token endpoint). Preserves the prior refresh token / scope when the response
+/// omits a rotated value.
+pub async fn refresh(
+    client: &reqwest::Client,
+    config: &LoginConfig<'_>,
+    creds: &StoredCredentials,
+) -> Result<TokenSet, String> {
+    let discovered = discover(client, config).await?;
+    let client_info = creds
+        .client_info
+        .as_ref()
+        .ok_or_else(|| "cannot refresh: no client registration stored".to_string())?;
+    let refresh_token = creds
+        .tokens
+        .refresh_token
+        .as_ref()
+        .ok_or_else(|| "cannot refresh: no refresh token stored".to_string())?;
+    let token = flow::refresh_tokens(
+        client,
+        &discovered.authorization_server.token_endpoint,
+        &client_info.client_id,
+        client_info.client_secret.as_deref(),
+        refresh_token,
+        &discovered.resource,
+    )
+    .await?;
+    Ok(TokenSet::from_response(
+        token.access_token,
+        token
+            .refresh_token
+            .or_else(|| creds.tokens.refresh_token.clone()),
+        token.expires_in,
+        token.scope.or_else(|| creds.tokens.scope.clone()),
+        now_unix(),
+    ))
+}
+
+/// Obtain a valid access token for the server, using the store: a still-valid
+/// cached token is returned as-is (silent reconnect); an expired one is
+/// refreshed; otherwise a full browser login runs. New credentials are
+/// persisted, reusing any existing client registration.
+pub async fn ensure_access_token(
+    client: &reqwest::Client,
+    store: &dyn TokenStore,
+    config: &LoginConfig<'_>,
+    redirect: &dyn RedirectDriver,
+) -> Result<String, String> {
+    if let Some(mut creds) = store.load(config.mcp_url) {
+        if !creds.tokens.is_expired(now_unix(), EXPIRY_SKEW_SECS) {
+            return Ok(creds.tokens.access_token);
+        }
+        if creds.tokens.refresh_token.is_some() {
+            if let Ok(tokens) = refresh(client, config, &creds).await {
+                creds.tokens = tokens;
+                store.save(&creds)?;
+                return Ok(creds.tokens.access_token);
+            }
+            // Refresh failed (revoked/expired refresh token) — fall through to a
+            // fresh login.
+        }
+    }
+    let existing_client_info = store.load(config.mcp_url).and_then(|c| c.client_info);
+    let creds = login(client, config, existing_client_info, redirect).await?;
+    store.save(&creds)?;
+    Ok(creds.tokens.access_token)
 }

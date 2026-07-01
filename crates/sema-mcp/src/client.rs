@@ -165,6 +165,30 @@ impl McpClient {
         }
     }
 
+    /// The `WWW-Authenticate` challenge from the most recent HTTP `401`, if the
+    /// last request was refused for lack of authorization (HTTP transport only).
+    pub fn http_challenge(&self) -> Option<String> {
+        match &self.transport {
+            Transport::Http(t) => t.last_challenge.clone(),
+            Transport::Stdio(_) => None,
+        }
+    }
+
+    /// Attach a bearer token to all subsequent HTTP requests (no-op for stdio).
+    pub fn set_bearer_token(&mut self, token: &str) {
+        if let Transport::Http(t) = &mut self.transport {
+            t.set_bearer(token);
+        }
+    }
+
+    /// The remote server URL (HTTP transport only), for keying the token store.
+    pub fn http_url(&self) -> Option<String> {
+        match &self.transport {
+            Transport::Http(t) => Some(t.url.clone()),
+            Transport::Stdio(_) => None,
+        }
+    }
+
     /// Send a request under a fresh JSON-RPC id and return its result.
     async fn request(
         &mut self,
@@ -404,6 +428,9 @@ struct HttpTransport {
     /// The protocol version negotiated in `InitializeResult`, sent back as the
     /// `MCP-Protocol-Version` header on all following requests.
     protocol_version: Option<String>,
+    /// The `WWW-Authenticate` header from the most recent `401`, so the auth
+    /// layer can discover where to log in and retry.
+    last_challenge: Option<String>,
 }
 
 impl HttpTransport {
@@ -420,7 +447,14 @@ impl HttpTransport {
             headers: config.headers,
             session_id: None,
             protocol_version: None,
+            last_challenge: None,
         })
+    }
+
+    /// Attach a bearer token to every subsequent request.
+    fn set_bearer(&mut self, token: &str) {
+        self.headers
+            .insert("Authorization".to_string(), format!("Bearer {token}"));
     }
 
     /// Attach the session / protocol-version / caller headers that apply once
@@ -484,6 +518,18 @@ impl HttpTransport {
             // reconnects rather than silently retrying against a dead session.
             return Err(format!(
                 "MCP session expired (HTTP 404) on `{method}`; reconnect required"
+            ));
+        }
+        if status.as_u16() == 401 {
+            // Record the challenge so the auth layer can discover the
+            // authorization server, obtain a token, and retry.
+            self.last_challenge = response
+                .headers()
+                .get("www-authenticate")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string);
+            return Err(format!(
+                "MCP server requires authorization (HTTP 401) on `{method}`"
             ));
         }
         if !status.is_success() {
