@@ -3,6 +3,7 @@ pub mod builtins;
 pub mod client;
 pub mod docs_search;
 pub mod notebook;
+pub mod oauth;
 pub mod protocol;
 pub mod server;
 pub mod tools;

@@ -84,6 +84,18 @@ tar = "0.4"
 flate2 = "1"
 crc32fast = "1"
 
+# MCP client OAuth (native, hand-rolled per Option B). oauth2 provides PKCE-S256
+# + code/refresh exchange; we drive it with our own reqwest client. tiny_http is
+# the lean loopback-redirect listener; webbrowser opens the system browser;
+# keyring is the OS keychain (with a 0600-file fallback we implement). directories
+# resolves the config dir. Platform-native keyring backends avoid extra system
+# libs (no dbus) so CI builds stay green.
+oauth2 = { version = "5", default-features = false }
+tiny_http = "0.12"
+webbrowser = "1"
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
+directories = "6"
+
 wasm-bindgen = "0.2"
 js-sys = "0.3"
 web-sys = "0.3"
