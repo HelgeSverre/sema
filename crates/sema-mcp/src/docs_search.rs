@@ -9,7 +9,7 @@
 //! Ranking is BM25 over the entry `name` (double-weighted) plus `module`, `section`,
 //! `summary`, and `body`, with conservative boosts for queries that *literally* name a
 //! symbol. The parameters and the small synonym table were validated against a 68-query
-//! oracle (recall@5 ≈ 0.93); see `docs/plans/2026-06-25-mcp-docs-search.md`.
+//! oracle (recall@5 ≈ 0.93); see `docs/plans/archive/2026-06-25-mcp-docs-search.md`.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;

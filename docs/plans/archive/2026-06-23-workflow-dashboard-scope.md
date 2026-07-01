@@ -27,7 +27,7 @@
 
 **Status:** full variant-5b viewer + rich runtime events shipped 2026-06-24 · Option B (SQLite) = scale upgrade, pending · **Design LOCKED 2026-06-23.**
 **Depends on:** Spike 1 (sequential runtime + *frozen* JSONL journal) — see
-`docs/plans/2026-06-23-dynamic-workflows-derisk-spikes.md` §"Spike 1". This work
+`docs/plans/archive/2026-06-23-dynamic-workflows-derisk-spikes.md` §"Spike 1". This work
 **must not start until the ~8-event vocabulary is frozen** (scoping
 `2026-06-21-dynamic-workflows-scoping.md` §3.5, open question #5).
 

@@ -777,7 +777,7 @@ impl Drop for ReinstallGuard<'_> {
 /// line within the task, but stepping does NOT currently follow control across the
 /// scheduler boundary into sibling tasks or back to the main VM — siblings stay
 /// parked. This is acceptable for the STOP+CONTINUE slice; see
-/// docs/plans/2026-06-23-async-debugger.md. The non-debug path is untouched.
+/// docs/plans/archive/2026-06-23-async-debugger.md. The non-debug path is untouched.
 fn step_task_debug(task: &mut Task, ctx: &EvalContext) -> Result<VmExecResult, SemaError> {
     // First step of this task slice: start it or resume it, in debug mode.
     let mut result = if !task.started {

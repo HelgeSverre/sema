@@ -6,7 +6,7 @@ playground (Slice 2), 2026-06-23 — a breakpoint inside an async task now stops
 *across* the scheduler boundary into sibling tasks, and full stack/variable
 inspection targeting the paused **task's** VM at an async stop (today inspection at a
 cooperative async stop targets the main VM's `async/all`/`await` frame). See
-`docs/plans/2026-06-23-async-debugger.md` and the gate tests
+`docs/plans/archive/2026-06-23-async-debugger.md` and the gate tests
 `crates/sema/tests/dap_async_breakpoint_test.rs` (native) +
 `crates/sema/tests/wasm_async_debug_test.rs` (cooperative) +
 `playground/tests/async-debugger.spec.ts` (e2e).

@@ -13,10 +13,10 @@ can use it.
   login, token store). **This feature is the workflow/dashboard projection of that
   work and is HARD-BLOCKED on it.** (That doc is in-progress; this one only
   references it.)
-- `docs/plans/2026-06-21-dynamic-workflows-scoping.md` + `2026-06-23-dynamic-workflows-derisk-spikes.md`
+- `docs/plans/archive/2026-06-21-dynamic-workflows-scoping.md` + `docs/plans/archive/2026-06-23-dynamic-workflows-derisk-spikes.md`
   — the workflow runtime (`defworkflow`/`workflow/run`/`phase`/`checkpoint`,
   the frozen JSONL journal, `.sema/runs/<run-id>/`). **Shipped: Spike 1 + Spike 3.**
-- `docs/plans/2026-06-23-workflow-dashboard-scope.md` — `sema workflow view`
+- `docs/plans/archive/2026-06-23-workflow-dashboard-scope.md` — `sema workflow view`
   (the read-only viewer; Option-A spike shipped). The auth flow turns the viewer
   from read-only into the run's **control surface** for HITL gates.
 - The HITL approval-gate milestone (deferred) in the scoping doc §2.3 — auth is the

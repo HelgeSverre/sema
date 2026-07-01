@@ -17,7 +17,7 @@
 > - The events.jsonl event-name set is now FROZEN (downstream dashboard/SQLite read it). Next: **Spike 2**
 >   (cassette-backed `audit-auth` demo; its first step is the H2 `compute_cache_key` anti-collision fix).
 
-**Status:** De-risking addendum (2026-06-23) to `docs/plans/2026-06-21-dynamic-workflows-scoping.md`.
+**Status:** De-risking addendum (2026-06-23) to `docs/plans/archive/2026-06-21-dynamic-workflows-scoping.md`.
 Code-grounded. Every claim cites a `file:symbol` I actually read at the stated commit state.
 Audience: the repo owner, building from this for a full day.
 
@@ -45,7 +45,7 @@ Audience: the repo owner, building from this for a full day.
 >   `async/all` recipe Spike 0 Track A / Spike 3 specified (token released on BOTH success and error
 >   paths, no deadlock). **This IS the `workflow/foreach`/`parallel` substrate. It is built and shipped,
 >   not a spike to run.**
-> - **True cancellation ships** (`docs/plans/2026-06-23-concurrent-complete-and-true-cancel.md`,
+> - **True cancellation ships** (`docs/plans/archive/2026-06-23-concurrent-complete-and-true-cancel.md`,
 >   Slice B): `async/cancel`/`async/timeout` abort real work — `cancel_await_tree`
 >   (`scheduler.rs:323`, transitive across `async/await`), `IoHandle` abort seam
 >   (`async_signal.rs:39` `with_abort`), `http` connection torn down, `shell` subprocess **SIGKILLed as
@@ -140,7 +140,7 @@ Grounding flipped four things the scoping doc treated as cheap or solved.
 - `fuzz/spike0-foreach.sema` (new, throwaway).
 - `crates/sema-stdlib/src/list.rs` or a new `atom.rs` (new `atom`/`reset!`/`deref` if BOUND needs a cell) + register in `lib.rs`.
 - `crates/sema/tests/vm_async_test.rs` (new `#[test] spike0_foreach_order_cancel`, model on existing async harness; pin ORDER with `=> common::eval_tw("'(0 1 2 3 4 5 6 7)")`).
-- `docs/plans/2026-06-21-dynamic-workflows-scoping.md` (record the §5 gate verdict; correct §3.2 option (2) — see Plan corrections).
+- `docs/plans/archive/2026-06-21-dynamic-workflows-scoping.md` (record the §5 gate verdict; correct §3.2 option (2) — see Plan corrections).
 
 **Code sketch (hardest part: unwind-safe semaphore + ordered collect with no result vector).**
 ```sema

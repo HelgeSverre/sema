@@ -1,6 +1,6 @@
 //! `sema workflow view` — a tiny read-only web viewer over workflow run journals.
 //!
-//! Spike (scope doc `docs/plans/2026-06-23-workflow-dashboard-scope.md`, Option A):
+//! Spike (scope doc `docs/plans/archive/2026-06-23-workflow-dashboard-scope.md`, Option A):
 //! a self-contained AlpineJS tree viewer that `fetch()`es a run's `events.jsonl` and
 //! renders the Claude-Code-`/workflows`-style live tree, served by a minimal
 //! loopback HTTP server. The richer Option B (SQLite projection + server-side

@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-25
 **Status:** DEFERRED (planning only; not started). See `docs/deferred.md` → DOCS-SEARCH-1.
-**Builds on:** `docs/plans/2026-06-25-mcp-docs-search.md` (the shipped BM25 `docs_search` tool).
+**Builds on:** `docs/plans/archive/2026-06-25-mcp-docs-search.md` (the shipped BM25 `docs_search` tool).
 
 ## Why this plan exists
 

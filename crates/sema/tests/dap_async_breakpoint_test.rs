@@ -5,7 +5,7 @@
 //! async task via the NON-debug `execute_async`/`run_async` path, so a breakpoint
 //! on a line that executes only inside `(async/spawn (fn () …))` is silently
 //! skipped. See `docs/bugs/async-breakpoints.md` /
-//! `docs/plans/2026-06-23-async-debugger.md`.
+//! `docs/plans/archive/2026-06-23-async-debugger.md`.
 //!
 //! This is a fast MECHANISM-level test (it drives `VM::execute_debug` directly,
 //! NOT the slow binary-protocol DAP harness). It mirrors the DAP run setup in
