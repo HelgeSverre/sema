@@ -214,12 +214,12 @@ const copyIcon = (key) => {
             </div>
           </div>
 
-          <div class="name-origin" style="margin-top: 2.5rem; border: 1px solid var(--border); border-left: 3px solid var(--border-focus); border-radius: 8px; padding: 2rem 2.5rem; background-color: #181512; max-width: 720px;">
-            <span class="section-num" style="display: block; margin-bottom: 0.75rem;">The Name</span>
-            <p style="font-family: 'Cormorant', Georgia, serif; font-size: 1.75rem; font-weight: 300; color: #e9e3d6; line-height: 1.35; margin: 0 0 1rem 0;">
-              Sema takes its name from Ancient Greek <em style="color: #c8a855; font-style: italic;">sêma</em> (σῆμα): a sign, signal, or token of meaning.
+          <div class="name-origin" style="margin-top: 3rem; padding-top: 2.5rem; border-top: 1px solid var(--border); max-width: 760px;">
+            <span class="section-num" style="margin-bottom: 1.25rem;">The Name</span>
+            <p style="font-family: 'Cormorant', Georgia, serif; font-size: 2rem; font-weight: 300; color: var(--text-primary); line-height: 1.3; margin: 0 0 1.15rem 0;">
+              Sema takes its name from Ancient Greek <em style="color: var(--gold); font-style: italic;">sêma</em> <span style="color: var(--text-tertiary);">(σῆμα)</span> — a sign, signal, or token of meaning.
             </p>
-            <p style="font-size: 1rem; color: #968c79; line-height: 1.6; margin: 0;">
+            <p style="font-family: 'Inter', system-ui, sans-serif; font-size: 1rem; color: var(--text-secondary); line-height: 1.65; max-width: 42rem; margin: 0;">
               The same root runs through <em>semantics</em>, <em>semaphore</em>, and <em>semiotics</em> — fitting for a language built to carry meaning legibly between humans, machines, and the models that read both.
             </p>
           </div>
