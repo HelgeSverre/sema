@@ -340,11 +340,6 @@ enum Commands {
         #[arg(long)]
         no_llm: bool,
     },
-    #[command(hide = true, name = "__complete-doc-symbols")]
-    CompleteDocSymbols {
-        /// Prefix to filter documentation symbol names by
-        prefix: Option<String>,
-    },
 }
 
 #[derive(Subcommand)]
@@ -585,6 +580,22 @@ fn main() {
         std::process::exit(exit_code);
     }
 
+    // Shell-completion helper for `sema doc` symbols, handled before clap parses.
+    // It is intentionally NOT a clap subcommand: a hidden subcommand makes
+    // `clap_complete`'s bash generator panic (find_subcommand_with_path), which
+    // would break `sema completions bash`. The generated completion scripts still
+    // invoke `sema __complete-doc-symbols <prefix>`.
+    {
+        let mut args = std::env::args().skip(1);
+        if args.next().as_deref() == Some("__complete-doc-symbols") {
+            let prefix = args.next().unwrap_or_default();
+            for name in docs::completion_candidates(&prefix) {
+                println!("{name}");
+            }
+            return;
+        }
+    }
+
     let cli = Cli::parse();
 
     // Opt-in OpenTelemetry: installs a provider only when SEMA_OTEL_FILE or an OTLP
@@ -807,11 +818,6 @@ fn main() {
                 no_llm,
             } => {
                 run_eval(stdin, expr, json, path, sandbox, no_llm);
-            }
-            Commands::CompleteDocSymbols { prefix } => {
-                for name in docs::completion_candidates(prefix.as_deref().unwrap_or("")) {
-                    println!("{name}");
-                }
             }
         }
         return;
