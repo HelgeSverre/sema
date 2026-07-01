@@ -110,28 +110,9 @@ pub fn register(env: &sema_core::Env) {
         let text = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        // Remove ANSI escape sequences: ESC[ ... m
-        let mut result = String::with_capacity(text.len());
-        let mut chars = text.chars();
-        while let Some(ch) = chars.next() {
-            if ch == '\x1b' {
-                // Look for '['
-                if let Some(bracket) = chars.next() {
-                    if bracket == '[' {
-                        // Consume until 'm'
-                        for inner in chars.by_ref() {
-                            if inner == 'm' {
-                                break;
-                            }
-                        }
-                    }
-                    // else: not an ANSI sequence, skip the char after ESC
-                }
-            } else {
-                result.push(ch);
-            }
-        }
-        Ok(Value::string(&result))
+        // Strip ANSI escape sequences (full CSI + OSC, not just SGR). Shared with
+        // string/width & string/wrap via crate::strip_ansi.
+        Ok(Value::string(&crate::strip_ansi(text)))
     });
 
     // (term/rgb "text" r g b) -> 24-bit color
@@ -326,9 +307,27 @@ fn register_screen_control(env: &sema_core::Env) {
     make_emit_fn(env, "term/save-cursor", "\x1b7");
     make_emit_fn(env, "term/restore-cursor", "\x1b8");
 
-    // Mouse reporting (X10 + SGR extended coords)
-    make_emit_fn(env, "term/enable-mouse", "\x1b[?1000h\x1b[?1006h");
-    make_emit_fn(env, "term/disable-mouse", "\x1b[?1000l\x1b[?1006l");
+    // Mouse reporting: button events (1000) + button-motion/drag (1002) + SGR
+    // extended coords (1006). io/read-key decodes the reports into {:kind :mouse …}.
+    make_emit_fn(
+        env,
+        "term/enable-mouse",
+        "\x1b[?1000h\x1b[?1002h\x1b[?1006h",
+    );
+    make_emit_fn(
+        env,
+        "term/disable-mouse",
+        "\x1b[?1000l\x1b[?1002l\x1b[?1006l",
+    );
+
+    // Kitty keyboard protocol (opt-in): push flags 17 = disambiguate (1) +
+    // report-associated-text (16). No event-types flag, so no repeat/release
+    // events (which would double-fire as key presses). Terminals without kitty
+    // support silently ignore this, and keys keep coming through the legacy path.
+    // io/read-key decodes `ESC [ … u` events, normalizing to the usual key maps
+    // plus an optional :mods list. Restore with the stack pop on exit.
+    make_emit_fn(env, "term/enable-kitty-keys!", "\x1b[>17u");
+    make_emit_fn(env, "term/disable-kitty-keys!", "\x1b[<u");
 
     make_emit_fn(env, "term/bell", "\x07");
 

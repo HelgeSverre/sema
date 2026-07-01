@@ -496,10 +496,29 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         let path_var = std::env::var("PATH").unwrap_or_default();
         let sep = if cfg!(windows) { ';' } else { ':' };
+        // On Windows a bare name resolves by trying each PATHEXT suffix (unless
+        // it already has an extension); on Unix the name is used verbatim.
+        let candidates: Vec<String> =
+            if cfg!(windows) && std::path::Path::new(name).extension().is_none() {
+                let exts =
+                    std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
+                let mut names = vec![name.to_string()];
+                names.extend(
+                    exts.split(';')
+                        .map(str::trim)
+                        .filter(|e| !e.is_empty())
+                        .map(|e| format!("{name}{e}")),
+                );
+                names
+            } else {
+                vec![name.to_string()]
+            };
         for dir in path_var.split(sep) {
-            let candidate = std::path::Path::new(dir).join(name);
-            if candidate.is_file() && is_executable(&candidate) {
-                return Ok(Value::string(&candidate.to_string_lossy()));
+            for cand in &candidates {
+                let candidate = std::path::Path::new(dir).join(cand);
+                if candidate.is_file() && is_executable(&candidate) {
+                    return Ok(Value::string(&candidate.to_string_lossy()));
+                }
             }
         }
         Ok(Value::nil())

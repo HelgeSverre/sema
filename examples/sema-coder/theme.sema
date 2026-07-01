@@ -19,8 +19,26 @@
 (define (warn text)  (term/yellow text))
 (define (bad text)   (term/red text))
 
+;; Pure white — the letters of the canonical (sema) logotype are #ffffff
+(define (bright text) (term/rgb text 255 255 255))
+
 ;; A bold gold heading
 (define (heading text) (accent (term/style text :bold)))
 
-;; The prompt glyph — a heavy angle, gold and bold
+;; ── Canonical (sema) wordmark ────────────────────────────────────
+;; Per the brand guide: parentheses in warm gold, letters in bold pure white.
+;; Reused by the banner and the TUI header so the mark stays in one place.
+(define (wordmark)
+  (string/append (accent "(") (bright (term/style "sema" :bold)) (accent ")")))
+
+;; The wordmark plus a product suffix, e.g. (wordmark-with "coder") → "(sema) coder".
+(define (wordmark-with suffix)
+  (string/append (wordmark) " " (accent-dim (term/style suffix :bold))))
+
+;; The prompt glyph — a heavy angle: the LIVE input caret ("type here").
 (define prompt-glyph "❯")
+
+;; The user-message glyph — a solid bar: a PAST user turn in the transcript.
+;; Deliberately different from prompt-glyph so a sent message and the live input
+;; line are visually distinct.
+(define user-glyph "▌")

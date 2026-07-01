@@ -36,4 +36,11 @@ Platform: ~a" cwd platform))
        :model     chosen})))
 
 (define (run-turn agent input messages on-tool)
+  "Blocking turn used by the non-TTY / one-shot path (no live streaming)."
   (agent/run agent input {:on-tool-call on-tool :messages messages}))
+
+(define (run-turn-streaming agent input messages on-tool on-text)
+  "Turn used by the TUI: :on-text streams assistant deltas, :on-tool-call streams
+   tool events, so the front-end can render the reply live."
+  (agent/run agent input
+    {:on-tool-call on-tool :on-text on-text :messages messages}))

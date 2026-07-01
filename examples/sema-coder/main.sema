@@ -8,6 +8,7 @@
 
 (load "banner.sema")
 (load "commands.sema")
+(load "tui.sema")
 
 (define VERSION "0.1.0")
 
@@ -68,7 +69,12 @@
         (println (:response result))
         (exit 0)))
 
-    ;; Interactive
+    ;; Interactive, on a TTY → the full-screen TUI.
+    (when (sys/tty)
+      (tui-run cwd model cfg agent)
+      (exit 0))
+
+    ;; Not a TTY (piped/dumb terminal) → the plain line-based REPL below.
     (show-banner VERSION)
     (show-welcome cwd model)
 

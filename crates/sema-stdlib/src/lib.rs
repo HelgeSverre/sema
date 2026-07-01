@@ -68,6 +68,47 @@ pub mod workflow_check;
 use sema_core::Caps;
 use sema_core::{Env, Sandbox, Value};
 
+/// Strip ANSI escape sequences from `s`: full CSI (`ESC[ … final-byte`), OSC
+/// (`ESC] … BEL|ST`), and other two-char escapes. Shared by `term/strip`,
+/// `string/width`, and `string/wrap` so display-width math ignores styling.
+pub(crate) fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '\x1b' {
+            out.push(ch);
+            continue;
+        }
+        match chars.next() {
+            // CSI: ESC [ (params/intermediates) final-byte in 0x40..=0x7E.
+            Some('[') => {
+                for inner in chars.by_ref() {
+                    if ('\u{40}'..='\u{7e}').contains(&inner) {
+                        break;
+                    }
+                }
+            }
+            // OSC: ESC ] … terminated by BEL (0x07) or ST (ESC \).
+            Some(']') => {
+                while let Some(inner) = chars.next() {
+                    if inner == '\x07' {
+                        break;
+                    }
+                    if inner == '\x1b' {
+                        if chars.peek() == Some(&'\\') {
+                            chars.next();
+                        }
+                        break;
+                    }
+                }
+            }
+            // Other two-char escapes (ESC 7, ESC 8, …): drop the byte after ESC.
+            _ => {}
+        }
+    }
+    out
+}
+
 pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
     #[cfg(target_arch = "wasm32")]
     let _ = sandbox;

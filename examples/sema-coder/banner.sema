@@ -5,16 +5,11 @@
 
 (load "theme.sema")
 
-(define banner-lines
-  (list
-    "   ┌─┐┌─┐┌┬┐┌─┐   ┌─┐┌─┐┌┬┐┌─┐┬─┐"
-    "   └─┐├┤ │││├─┤   │  │ │ ││├┤ ├┬┘"
-    "   └─┘└─┘┴ ┴┴ ┴   └─┘└─┘─┴┘└─┘┴└─"))
-
 (define (show-banner version)
-  (term/set-title "Sema Coder")
+  ;; Title bar uses the plain wordmark (terminals don't render ANSI in the title).
+  (term/set-title "(sema) coder")
   (io/println-error "")
-  (for-each (lambda (line) (io/println-error (accent line))) banner-lines)
+  (io/println-error (string/append "   " (wordmark-with "coder")))
   (io/println-error
     (format "   ~a  ~a"
       (muted "the lisp-native coding agent")

@@ -218,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn root_ends_in_sema() {
+    fn root_is_ancestor_of_cwd() {
         if !git_available() {
             return;
         }
@@ -226,7 +226,15 @@ mod tests {
         let v = call(&env, "git/root", &[]).expect("git/root");
         let s = v.as_str().expect("string");
         assert!(!s.is_empty(), "root should be non-empty");
-        assert!(s.ends_with("sema"), "root {s:?} should end in 'sema'");
+        // git/root is the repo toplevel, so the cwd (the crate dir under `cargo
+        // test`) must live inside it. Assert containment rather than a hardcoded
+        // directory name, which isn't portable across checkouts and worktrees.
+        let root = std::fs::canonicalize(s).expect("canonical root");
+        let cwd = std::fs::canonicalize(std::env::current_dir().expect("cwd")).expect("canon cwd");
+        assert!(
+            cwd.starts_with(&root),
+            "cwd {cwd:?} should be inside git root {root:?}"
+        );
     }
 
     #[test]

@@ -3049,9 +3049,9 @@
       ],
       "returns": "list",
       "examples": [
-        "(cons 0 '(1 2 3))  ; => (0 1 2 3)\n(cons 1 '())       ; => (1)"
+        "(cons 0 '(1 2 3))  ; => (0 1 2 3)\n(cons 1 '())       ; => (1)\n(cons 0 \"a\")       ; => (0 \"a\")      ; not a dotted pair\n(cdr (cons 0 \"a\")) ; => (\"a\")        ; a list, not \"a\""
       ],
-      "body": "Prepend an element to a list.\n\n```sema\n(cons 0 '(1 2 3))  ; => (0 1 2 3)\n(cons 1 '())       ; => (1)\n```"
+      "body": "Prepend an element to a list.\n\nSema has **no dotted pairs / improper lists** — `cons` always yields a proper\nlist. If the second argument isn't a list it's treated as a one-element list, so\n`(cons a b)` becomes the two-element list `(a b)`, and `cdr` returns a list, not a\nbare value. To build a pair, use `(list a b)` and read it back with `car`/`nth`\n(not `car`/`cdr`), e.g. `(nth p 0)` / `(nth p 1)`.\n\n```sema\n(cons 0 '(1 2 3))  ; => (0 1 2 3)\n(cons 1 '())       ; => (1)\n(cons 0 \"a\")       ; => (0 \"a\")      ; not a dotted pair\n(cdr (cons 0 \"a\")) ; => (\"a\")        ; a list, not \"a\"\n```"
     },
     {
       "name": "drop",
@@ -10234,6 +10234,45 @@
       "body": "Convert a string to uppercase (Unicode-aware). Some characters expand when uppercased — the German sharp s `ß` becomes `SS` — so the result can be longer than the input.\n\n```sema\n(string/upper \"hello\")   ; => \"HELLO\"\n(string/upper \"ß\")       ; => \"SS\"\n```"
     },
     {
+      "name": "string/width",
+      "module": "strings",
+      "section": "Core String Operations",
+      "summary": "Terminal **display width** of a string, in columns. Unlike `string-length` (which counts Unicode scalar values), this counts how many columns the string occupies when printed: wide characters (CJK, most emoji) count as 2, combining marks as 0, and ANSI escape sequences (colors, cursor moves) as 0. Use it for TUI layout, padding, and alignment, where character count is wrong for non-ASCII or styled text.",
+      "params": [
+        {
+          "name": "s",
+          "type": "string"
+        }
+      ],
+      "returns": "int",
+      "examples": [
+        "(string/width \"hello\")     ; => 5\n(string/width \"日本語\")     ; => 6   (string-length is 3)\n(string/width \"👋\")         ; => 2\n(string/width \"é\")          ; => 1   (base + combining mark)"
+      ],
+      "body": "Terminal **display width** of a string, in columns. Unlike `string-length` (which counts Unicode scalar values), this counts how many columns the string occupies when printed: wide characters (CJK, most emoji) count as 2, combining marks as 0, and ANSI escape sequences (colors, cursor moves) as 0. Use it for TUI layout, padding, and alignment, where character count is wrong for non-ASCII or styled text.\n\n```sema\n(string/width \"hello\")     ; => 5\n(string/width \"日本語\")     ; => 6   (string-length is 3)\n(string/width \"👋\")         ; => 2\n(string/width \"é\")          ; => 1   (base + combining mark)\n```"
+    },
+    {
+      "name": "string/word-wrap",
+      "module": "strings",
+      "section": "Core String Operations",
+      "summary": "Word-wrap `text` to lines of at most `width` display columns, returning a list of line strings. Wraps on spaces (collapsing runs), hard-breaks any word longer than `width` on grapheme-cluster boundaries, and preserves explicit newlines as line breaks. Widths are measured with `string/width`, so wrapping is correct for non-ASCII text. (Distinct from `string/wrap`, which wraps a string in left/right delimiters.)",
+      "params": [
+        {
+          "name": "text",
+          "type": "string"
+        },
+        {
+          "name": "width",
+          "type": "int",
+          "doc": "max display columns per line"
+        }
+      ],
+      "returns": "list",
+      "examples": [
+        "(string/word-wrap \"the quick brown fox\" 10)\n; => (\"the quick\" \"brown fox\")\n\n(string/word-wrap \"日本語 の テスト\" 8)\n; => (\"日本語\" \"の テスト\")"
+      ],
+      "body": "Word-wrap `text` to lines of at most `width` display columns, returning a list of line strings. Wraps on spaces (collapsing runs), hard-breaks any word longer than `width` on grapheme-cluster boundaries, and preserves explicit newlines as line breaks. Widths are measured with `string/width`, so wrapping is correct for non-ASCII text. (Distinct from `string/wrap`, which wraps a string in left/right delimiters.)\n\n```sema\n(string/word-wrap \"the quick brown fox\" 10)\n; => (\"the quick\" \"brown fox\")\n\n(string/word-wrap \"日本語 の テスト\" 8)\n; => (\"日本語\" \"の テスト\")\n```"
+    },
+    {
       "name": "string/words",
       "module": "strings",
       "section": "Case Conversion",
@@ -10816,11 +10855,25 @@
       "body": "Render text with decreased intensity.\n\n```sema\n(term/dim \"less important\")\n```"
     },
     {
+      "name": "term/disable-kitty-keys!",
+      "module": "terminal",
+      "section": "Screen Control",
+      "summary": "Pop the kitty keyboard protocol flags pushed by `term/enable-kitty-keys!`, restoring the terminal's previous keyboard mode. Call before `io/tty-restore!` on exit. Takes no arguments.",
+      "body": "Pop the kitty keyboard protocol flags pushed by `term/enable-kitty-keys!`, restoring the terminal's previous keyboard mode. Call before `io/tty-restore!` on exit. Takes no arguments."
+    },
+    {
       "name": "term/disable-mouse",
       "module": "terminal",
       "section": "Screen Control",
       "summary": "Disable mouse event reporting previously turned on with `term/enable-mouse`. Takes no arguments.",
       "body": "Disable mouse event reporting previously turned on with `term/enable-mouse`. Takes no arguments."
+    },
+    {
+      "name": "term/enable-kitty-keys!",
+      "module": "terminal",
+      "section": "Screen Control",
+      "summary": "Opt into the kitty keyboard protocol (progressive-enhancement flags: disambiguate + report-associated-text). While enabled, `io/read-key` decodes richer key events — reliable modifier reporting (an optional `:mods` list of `:shift`/`:alt`/`:ctrl`/`:super`) and unambiguous key identification — normalized to the same `{:kind :char/:ctrl/:alt/:key}` shapes as the legacy path, so existing consumers keep working. Terminals without kitty support silently ignore this and keys keep arriving via the legacy encoding. Restore with `term/disable-kitty-keys!` before leaving raw mode. Takes no arguments.",
+      "body": "Opt into the kitty keyboard protocol (progressive-enhancement flags: disambiguate + report-associated-text). While enabled, `io/read-key` decodes richer key events — reliable modifier reporting (an optional `:mods` list of `:shift`/`:alt`/`:ctrl`/`:super`) and unambiguous key identification — normalized to the same `{:kind :char/:ctrl/:alt/:key}` shapes as the legacy path, so existing consumers keep working. Terminals without kitty support silently ignore this and keys keep arriving via the legacy encoding. Restore with `term/disable-kitty-keys!` before leaving raw mode. Takes no arguments."
     },
     {
       "name": "term/enable-mouse",

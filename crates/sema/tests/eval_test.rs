@@ -312,6 +312,21 @@ eval_tests! {
     term_move_to_returns_nil: "(term/move-to 1 1)" => Value::nil(),
     term_flush_returns_nil: "(term/flush)" => Value::nil(),
     term_set_title_returns_nil: r#"(term/set-title "x")"# => Value::nil(),
+    // term/strip removes full CSI/OSC sequences, not just SGR (`…m`). A cursor
+    // move or OSC title must not swallow the visible text that follows it.
+    term_strip_sgr: r#"(term/strip "\x1b;[31mred\x1b;[0m")"# => Value::string("red"),
+    term_strip_cursor_move: r#"(term/strip "x\x1b;[10;5Hy")"# => Value::string("xy"),
+    term_strip_osc_title: r#"(term/strip "\x1b;]0;title\x07;after")"# => Value::string("after"),
+    term_strip_plain: r#"(term/strip "plain")"# => Value::string("plain"),
+    // string/width — terminal display columns (wide chars = 2, ANSI = 0).
+    string_width_ascii: r#"(string/width "hello")"# => Value::int(5),
+    string_width_cjk: r#"(string/width "日本語")"# => Value::int(6),
+    string_width_emoji: r#"(string/width "👋")"# => Value::int(2),
+    string_width_ignores_ansi: r#"(string/width (term/rgb "hi" 1 2 3))"# => Value::int(2),
+    // string/wrap — width-aware word wrapping to a list of lines.
+    string_wrap_words: r#"(string/word-wrap "the quick brown fox" 10)"# => common::eval(r#"'("the quick" "brown fox")"#),
+    string_wrap_hard_break: r#"(string/word-wrap "abcdefghij k" 5)"# => common::eval(r#"'("abcde" "fghij" "k")"#),
+    string_wrap_keeps_newlines: r#"(string/word-wrap "a\nb" 10)"# => common::eval(r#"'("a" "b")"#),
 }
 
 // ============================================================

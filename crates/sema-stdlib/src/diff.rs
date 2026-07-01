@@ -227,6 +227,14 @@ fn apply_hunks(content: &str, hunks: &[Hunk]) -> Result<String, SemaError> {
             }
         };
 
+        // If the hunk applied at a drifted position (earlier edits shifted the
+        // buffer by more than their length delta accounted for), fold that drift
+        // into `offset` so later hunks — whose old_start is still in original
+        // coordinates — stay aligned instead of compounding the misplacement.
+        if !expected.is_empty() {
+            offset += splice_at as i64 - nominal;
+        }
+
         // Splice: remove the matched old lines, insert the replacement.
         let remove_count = expected.len();
         lines.splice(

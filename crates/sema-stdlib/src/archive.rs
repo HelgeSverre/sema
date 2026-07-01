@@ -145,6 +145,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             .map_err(|e| SemaError::Io(format!("zip/extract {dest_dir}: {e}")))?;
 
         let mut count = 0i64;
+        let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
         for i in 0..archive.len() {
             let mut entry = archive
                 .by_index(i)
@@ -160,6 +161,15 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
                 std::fs::create_dir_all(&target)
                     .map_err(|e| SemaError::Io(format!("zip/extract {name}: {e}")))?;
             } else {
+                // A foreign archive can carry two file entries that map to the
+                // same target; the create-side dedup doesn't protect extraction,
+                // so refuse the duplicate instead of silently overwriting.
+                if !seen.insert(rel.clone()) {
+                    return Err(SemaError::eval(format!(
+                        "zip/extract: duplicate entry target {} — refusing to overwrite",
+                        rel.display()
+                    )));
+                }
                 if let Some(parent) = target.parent() {
                     std::fs::create_dir_all(parent)
                         .map_err(|e| SemaError::Io(format!("zip/extract {name}: {e}")))?;
@@ -295,6 +305,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
 
         let mut archive = tar::Archive::new(&tar_bytes[..]);
         let mut count = 0i64;
+        let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
         for entry in archive
             .entries()
             .map_err(|e| SemaError::eval(format!("tar/extract {tar_path}: {e}")))?
@@ -318,6 +329,14 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
                 None => continue,
             };
             let target = dest_root.join(&rel);
+            // Refuse a second entry mapping to the same file target (foreign
+            // archives bypass the create-side dedup); directories may recur.
+            if !entry.header().entry_type().is_dir() && !seen.insert(rel.clone()) {
+                return Err(SemaError::eval(format!(
+                    "tar/extract: duplicate entry target {} — refusing to overwrite",
+                    rel.display()
+                )));
+            }
             if let Some(parent) = target.parent() {
                 std::fs::create_dir_all(parent)
                     .map_err(|e| SemaError::Io(format!("tar/extract {name}: {e}")))?;
